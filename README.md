@@ -135,6 +135,23 @@ cli（headless）         同一套 core 的非 Godot 消费者
 | 万级电路单次编辑（含层次展开与引擎重建） | ~13.5 ms |
 | 静默电路每拍求值组件数 | 0 |
 
+## 路线图
+
+按[规格书 v4](docs/logic-sandbox-spec-v4.md) 的里程碑推进，逐项状态见 [docs/ROADMAP.md](docs/ROADMAP.md)。
+
+| 里程碑 | 范围 | 状态 |
+|---|---|---|
+| **M0** 纯 Rust 内核 | 数据模型 / tick 引擎 / 网表推导 / 存档 / 撤销 / CLI | ✅ 完成 |
+| **M1** Godot 最小壳 | 编辑交互 / 自绘渲染 / 调速 / 注释 | ✅ 完成 |
+| **M2** 完整编辑器 + 全组件库 | 全组件 / 封装 / 网络标签 / 多图纸 / DRC / 万元件性能 | ✅ 完成 |
+| **M3** 专业四件套 + checkpoint | 波形与 VCD ✅ · 关键路径 ✅ · 测试台 ⬜ · CLI 回归 ⬜ · checkpoint ⬜ | 🚧 进行中 |
+| **M4** Verilog 导出 | 结构化导出 / 单时钟约束 / 外设 black-box；验收 = iverilog 仿真 + Yosys 综合双通过 | ⬜ 计划中 |
+| **M5** 造机与外设 | Keyboard / UART / 汇编器 + ISA / ROM 烧录 / 参考 CPU 教程 | ⬜ 计划中 |
+| **M6+** | FSM 编辑器、三态总线、真值表双向、SVG 导出、i18n | ⬜ 远期 |
+
+最终目标是把规格 §15 的七条验收标准全部打勾。其中最硬的两条是：**用自建 CPU + UART 跑通一段
+含条件跳转的真实程序**，以及**任意电路导出的 Verilog 能被 iverilog 与 Yosys 双双接受**。
+
 ## 许可
 
 [MIT](LICENSE) © 2026 Orlean-Crispy

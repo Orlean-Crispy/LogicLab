@@ -111,3 +111,6 @@ cargo run --release -p logiclab-cli -- bench    # 万级规模基准
   **不得取其代码 / 素材 / 文案**）。
 - **GPL 提醒**：hneemann/Digital 与 logisim-evolution 均为 GPLv3，
   只能看思路、重新实现；复制代码会让本项目传染为 GPL（v4 §17）。
+- **本项目的 MIT 与上面这条红线是绑在一起的**：MIT 只对「自己写的代码」成立。
+  一旦真把 GPL 代码或素材抄进来，MIT 就站不住了——要么把那段整个移除并重新实现，
+  要么把项目整体改成 GPLv3。所以「只借鉴机制、绝不复制实现」不是洁癖，是许可证前提。

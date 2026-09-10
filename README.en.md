@@ -137,6 +137,23 @@ real hardware and is also a blocker for Verilog export, so it is treated as an e
 | Single edit on a 10k circuit (including elaboration and engine rebuild) | ~13.5 ms |
 | Components evaluated per tick on an idle circuit | 0 |
 
+## Roadmap
+
+Work follows the milestones of [spec v4](docs/logic-sandbox-spec-v4.md); item-by-item status lives in [docs/ROADMAP.md](docs/ROADMAP.md).
+
+| Milestone | Scope | Status |
+|---|---|---|
+| **M0** Pure-Rust core | Data model / tick engine / netlist derivation / save files / undo / CLI | ✅ Done |
+| **M1** Minimal Godot shell | Editing interaction / custom-drawn rendering / speed control / annotations | ✅ Done |
+| **M2** Full editor + complete library | All components / encapsulation / net labels / multiple drawings / DRC / 10k-scale performance | ✅ Done |
+| **M3** Professional quartet + checkpoint | Waveforms and VCD ✅ · critical path ✅ · testbench ⬜ · CLI regression ⬜ · checkpoint ⬜ | 🚧 In progress |
+| **M4** Verilog export | Structured export / single-clock constraint / peripheral black boxes; acceptance = iverilog simulation + Yosys synthesis both pass | ⬜ Planned |
+| **M5** Machine building and peripherals | Keyboard / UART / assembler + ISA / ROM flashing / reference CPU tutorial | ⬜ Planned |
+| **M6+** | FSM editor, tri-state buses, truth-table round-trip, SVG export, i18n | ⬜ Later |
+
+The end goal is to tick all seven acceptance criteria of spec §15. The two sharpest are: **a self-built CPU + UART
+running a real program with conditional jumps**, and **any exported Verilog being accepted by both iverilog and Yosys**.
+
 ## License
 
 [MIT](LICENSE) © 2026 Orlean-Crispy
