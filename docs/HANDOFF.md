@@ -5,7 +5,10 @@
 > 版本留档：`releases/{X86,ARM64}/`，命名 `LogicLab-<版本>-<架构>.exe`
 > 远 端：https://github.com/Orlean-Crispy/LogicLab
 
-## 1. 当前状态：0.1.0 正式版
+## 1. 当前状态：0.2.0 Checkpoint 1
+
+> 版本命名说明：项目整体处于测试期，不用 alpha/beta 这类希腊字母后缀，
+> 改用 **Checkpoint**（检查点）——每次攒够一批功能就封一个检查点，语义中性、可无限延续。
 
 | 部分 | 状态 |
 |---|---|

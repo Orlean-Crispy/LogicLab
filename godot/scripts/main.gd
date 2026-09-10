@@ -7,7 +7,8 @@ const UiPanelScript := preload("res://scripts/ui_panel.gd")
 const HierPanelScript := preload("res://scripts/hier_panel.gd")
 const WavePanelScript := preload("res://scripts/wave_panel.gd")
 
-const VERSION := "0.1.0"
+const VERSION := "0.2.0"
+const CHANNEL := "Checkpoint 1"
 
 var core                    # LogicLab（GDExtension 类）
 var canvas                  # CircuitCanvas
@@ -86,8 +87,8 @@ func _ready() -> void:
 	canvas.load_example("full_adder")
 	hier.refresh()
 
-	get_window().title = "LogicLab %s" % VERSION
-	print("LogicLab %s 就绪：元件 %d 种 · 示例 %d 个" % [VERSION, core.library_ids().size(), core.example_ids().size()])
+	get_window().title = "LogicLab %s %s" % [VERSION, CHANNEL]
+	print("LogicLab %s %s 就绪：元件 %d 种 · 示例 %d 个" % [VERSION, CHANNEL, core.library_ids().size(), core.example_ids().size()])
 
 
 func _on_extract(cname: String) -> void:
