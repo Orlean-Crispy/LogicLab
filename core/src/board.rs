@@ -523,13 +523,29 @@ impl Board {
     }
 
     /// 删除元件；导线需由调用方负责清理 / 重新推导
+    /// 删除元件。**端点落在它引脚上的导线一并删除**。
+    ///
+    /// 留着那些线不只是视觉垃圾：用户会以为那里还连着东西，而网表推导会继续
+    /// 给这些孤儿折线分配网络，DRC 于是报一堆看不懂的悬空输入。
+    /// 只从中间路过的导线不删——它两端都还在，电气上仍然完整。
     pub fn remove_instance(&mut self, id: u32) -> bool {
-        if (id as usize) < self.instances.len() {
-            self.instances.remove(id as usize);
-            true
-        } else {
-            false
-        }
+        let Some(inst) = self.instances.get(id as usize) else {
+            return false;
+        };
+        let (ix, iy) = (inst.x, inst.y);
+        let pins = &inst.pins;
+        // 单遍 retain：不建临时下标表，也不会退化成逐条 remove 的 O(导线²)
+        self.wires.retain(|w| {
+            let (Some(a), Some(b)) = (w.points.first(), w.points.last()) else {
+                return true;
+            };
+            !pins.iter().any(|p| {
+                let q = Point::new(ix + p.dx, iy + p.dy);
+                q == *a || q == *b
+            })
+        });
+        self.instances.remove(id as usize);
+        true
     }
 
     pub fn add_wire(&mut self, points: Vec<Point>) -> u32 {

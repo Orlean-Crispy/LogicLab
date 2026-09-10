@@ -355,5 +355,17 @@ func _initialize() -> void:
 		if int(f1.pin_value(7, 0)[0]) != int(row[4]):
 			sum_ok = false
 	_check(sum_ok, "真值表四组全部正确")
+
+	print("[28] 删除元件连带清理导线（hotfix 回归）")
+	var r1 = LogicLab.new()
+	var rsw: int = r1.add_component("switch", 0, 0)
+	var rled: int = r1.add_component("led", 8, 0)
+	r1.connect_pins(rsw, 0, rled, 0)
+	_check(r1.wire_ranges().size() == 5, "连线后恰好一条导线")
+	r1.remove_component(rsw)
+	_check(r1.wire_ranges().size() == 0, "删元件后接线一并消失")
+	r1.undo()
+	_check(r1.wire_ranges().size() == 5, "撤销把线还回来")
+
 	print("=== %s ===" % ("全部通过" if _fails == 0 else "%d 项失败" % _fails))
 	quit(0 if _fails == 0 else 1)

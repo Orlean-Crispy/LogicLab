@@ -157,22 +157,32 @@ impl Session {
         parts.join("/")
     }
 
-    /// 从根到当前图纸的路径（图纸名）
-    pub fn breadcrumb(&self) -> Vec<String> {
-        let mut v = Vec::new();
+    /// 沿 path 解析出每一层的图纸索引（含根）；遇到失效引用就停在最后一层。
+    ///
+    /// 面包屑、跳层都要走这条链，逻辑只写一遍。
+    fn path_boards(&self) -> Vec<u32> {
+        let n = self.project.boards.len();
         let mut b = self.project.main_board as u32;
-        v.push(self.project.boards[b as usize].name.clone());
+        let mut v = vec![b];
         for &i in &self.path {
             let Some(inst) = self.project.boards[b as usize].instances.get(i as usize) else {
                 break;
             };
-            if inst.sub == NO_SUB || inst.sub as usize >= self.project.boards.len() {
+            if inst.sub == NO_SUB || inst.sub as usize >= n {
                 break;
             }
             b = inst.sub;
-            v.push(self.project.boards[b as usize].name.clone());
+            v.push(b);
         }
         v
+    }
+
+    /// 从根到当前图纸的路径（图纸名）
+    pub fn breadcrumb(&self) -> Vec<String> {
+        self.path_boards()
+            .iter()
+            .map(|&b| self.project.boards[b as usize].name.clone())
+            .collect()
     }
 
     /// 进入子电路的层数（0 = 根图纸）
@@ -379,8 +389,18 @@ impl Session {
             return false;
         }
         self.edit_project(|bs| {
+            // 走 remove_instance 而不是 retain：后者只抹实例，会把导线留成孤儿
             for b in bs.iter_mut() {
-                b.instances.retain(|inst| inst.sub != idx);
+                let victims: Vec<u32> = b
+                    .instances
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, inst)| inst.sub == idx)
+                    .map(|(i, _)| i as u32)
+                    .collect();
+                for &v in victims.iter().rev() {
+                    b.remove_instance(v);
+                }
             }
             bs.remove(idx as usize);
             for b in bs.iter_mut() {
@@ -424,17 +444,8 @@ impl Session {
             return false;
         }
         self.path.truncate(depth);
-        let mut b = self.project.main_board as u32;
-        for &i in &self.path {
-            let Some(inst) = self.project.boards[b as usize].instances.get(i as usize) else {
-                break;
-            };
-            if inst.sub == NO_SUB {
-                break;
-            }
-            b = inst.sub;
-        }
-        self.active = b;
+        let root = self.project.main_board as u32;
+        self.active = self.path_boards().last().copied().unwrap_or(root);
         self.refresh_view();
         self.revision += 1;
         true
@@ -1280,6 +1291,76 @@ mod tests {
         assert!(!s.wave_watch(NO_NET, "x"));
         assert!(!s.wave_watch(9999, "x"));
         assert_eq!(s.wave_len(), 0);
+    }
+
+    #[test]
+    fn removing_component_also_removes_its_wires() {
+        let mut s = Session::new();
+        let sw = s.add_component(DefId::Switch, 0, 0);
+        let led = s.add_component(DefId::Led, 8, 0);
+        assert!(s.connect_pins((sw, 0), (led, 0)));
+        assert_eq!(s.board().wires.len(), 1);
+
+        s.remove_component(sw);
+        assert_eq!(s.board().instances.len(), 1);
+        assert_eq!(s.board().wires.len(), 0, "删元件必须连带删掉接在它引脚上的导线");
+
+        assert!(s.undo());
+        assert_eq!(s.board().wires.len(), 1, "撤销要把线还回来");
+    }
+
+    /// 只是从导线中段路过的元件被删掉时，那条线两端都还在，不该跟着消失
+    #[test]
+    fn removing_component_keeps_pass_through_wires() {
+        let mut s = Session::new();
+        s.add_component(DefId::Buffer, 0, 0); // 输出脚落在 (2,0)
+        s.edit(|b| {
+            b.add_wire(vec![Point::new(2, 0), Point::new(30, 0)]);
+        });
+        let led = s.edit(|b| b.add_instance(DefId::Led, Params::default().width(1), 10, 0));
+        assert_eq!(s.board().wires.len(), 1);
+
+        s.remove_component(led);
+        assert_eq!(s.board().wires.len(), 1, "路过引脚的导线不该被剪断");
+    }
+
+    #[test]
+    fn removing_drawing_cleans_dependent_wires() {
+        let mut s = Session::new();
+        let sub = s.add_board("子");
+        assert!(s.open_board(sub));
+        let a = s.add_component(DefId::InputPin, 0, 0);
+        let y = s.add_component(DefId::OutputPin, 8, 0);
+        assert!(s.connect_pins((a, 0), (y, 0)));
+
+        assert!(s.open_board(0));
+        let sw = s.add_component(DefId::Switch, 0, 0);
+        let inst = s.add_sub_instance(sub, 10, 0).expect("放不下实例");
+        assert!(s.connect_pins((sw, 0), (inst, 0)));
+        assert_eq!(s.board().wires.len(), 1);
+
+        assert!(s.remove_board(sub));
+        assert_eq!(s.board().instances.len(), 1, "引用它的实例一并消失");
+        assert_eq!(s.board().wires.len(), 0, "接在实例上的导线也要消失");
+    }
+
+    #[test]
+    fn batch_removal_cleans_wires_too() {
+        let mut s = Session::new();
+        let a = s.add_component(DefId::Not, 0, 0);
+        let b = s.add_component(DefId::Not, 8, 0);
+        let c = s.add_component(DefId::Not, 16, 0);
+        assert!(s.connect_pins((a, 1), (b, 0)));
+        assert!(s.connect_pins((b, 1), (c, 0)));
+        assert_eq!(s.board().wires.len(), 2);
+
+        // 桥接层的批量删除就是这么做的：降序逐个删
+        s.edit_batch(|bd| {
+            bd.remove_instance(1);
+            bd.remove_instance(0);
+        });
+        assert_eq!(s.board().instances.len(), 1);
+        assert_eq!(s.board().wires.len(), 0, "批量删除同样不留孤儿导线");
     }
 }
 

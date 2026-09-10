@@ -8,7 +8,7 @@ const HierPanelScript := preload("res://scripts/hier_panel.gd")
 const WavePanelScript := preload("res://scripts/wave_panel.gd")
 
 const VERSION := "0.2.0"
-const CHANNEL := "Checkpoint 1"
+const CHANNEL := "Checkpoint 1 Hotfix"
 
 var core                    # LogicLab（GDExtension 类）
 var canvas                  # CircuitCanvas
