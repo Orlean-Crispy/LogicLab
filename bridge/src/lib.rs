@@ -9,7 +9,7 @@
 
 use godot::prelude::*;
 
-use logiclab_core::board::NO_NET;
+use logiclab_core::board::{NO_NET, NO_SUB};
 use logiclab_core::defs::{DefId, ParamKind};
 use logiclab_core::drc;
 use logiclab_core::examples;
@@ -404,7 +404,7 @@ impl LogicLab {
     // 视图（扁平数组，避免每帧构造上千个对象）
     // -----------------------------------------------------------------------
 
-    /// [inst, def_idx, x, y, w, h, rot] × N
+    /// [inst, def_idx, x, y, w, h, rot, sub] × N（sub = -1 表示内置元件）
     #[func]
     fn components(&self) -> PackedInt64Array {
         let mut out = PackedInt64Array::new();
@@ -416,6 +416,7 @@ impl LogicLab {
             out.push(c.w as i64);
             out.push(c.h as i64);
             out.push(c.rot as i64);
+            out.push(if c.sub == NO_SUB { -1 } else { c.sub as i64 });
         }
         out
     }
@@ -548,7 +549,7 @@ impl LogicLab {
     // 元件信息 / 诊断
     // -----------------------------------------------------------------------
 
-    /// [def_idx, width, inputs, value, opts, x, y, rot, in_count, out_count]
+    /// [def_idx, width, inputs, value, opts, x, y, rot, in_count, out_count, sub]
     #[func]
     fn component_info(&self, id: i32) -> PackedInt64Array {
         let mut out = PackedInt64Array::new();
@@ -556,6 +557,7 @@ impl LogicLab {
             return out;
         };
         let p = inst.params;
+        let sub = inst.sub;
         out.push(def_index(inst.def));
         out.push(p.width as i64);
         out.push(p.inputs as i64);
@@ -566,6 +568,7 @@ impl LogicLab {
         out.push(inst.rot as i64);
         out.push(inst.def.in_count(&p) as i64);
         out.push(inst.def.out_count(&p) as i64);
+        out.push(if sub == NO_SUB { -1 } else { sub as i64 });
         out
     }
 
@@ -694,6 +697,265 @@ impl LogicLab {
     #[func]
     fn clear(&mut self) {
         self.session.clear();
+    }
+
+    // -----------------------------------------------------------------------
+    // 层次（ADR-28）
+    // -----------------------------------------------------------------------
+
+    /// 全部图纸名
+    #[func]
+    fn board_names(&self) -> PackedStringArray {
+        self.session.board_names().iter().map(|s| GString::from(s.as_str())).collect()
+    }
+
+    /// 当前编辑的图纸索引
+    #[func]
+    fn board_index(&self) -> i64 {
+        self.session.board_index() as i64
+    }
+
+    /// 从根到当前图纸的面包屑（图纸名）
+    #[func]
+    fn breadcrumb(&self) -> PackedStringArray {
+        self.session.breadcrumb().iter().map(|s| GString::from(s.as_str())).collect()
+    }
+
+    /// 当前处在第几层（0 = 根图纸）
+    #[func]
+    fn depth(&self) -> i64 {
+        self.session.depth() as i64
+    }
+
+    #[func]
+    fn open_board(&mut self, idx: i64) -> bool {
+        self.session.open_board(idx.max(0) as u32)
+    }
+
+    #[func]
+    fn add_board(&mut self, name: GString) -> i64 {
+        self.session.add_board(&name.to_string()) as i64
+    }
+
+    #[func]
+    fn remove_board(&mut self, idx: i64) -> bool {
+        self.session.remove_board(idx.max(0) as u32)
+    }
+
+    #[func]
+    fn set_board_name(&mut self, idx: i64, name: GString) -> bool {
+        self.session.set_board_name(idx.max(0) as u32, &name.to_string())
+    }
+
+    /// 某张图纸被实例化了几次（删除前的提示用）
+    #[func]
+    fn board_refs(&self, idx: i64) -> i64 {
+        self.session.board_refs(idx.max(0) as u32) as i64
+    }
+
+    /// 在当前图纸放一个子电路实例；失败返回 -1
+    #[func]
+    fn add_sub_instance(&mut self, board: i64, x: i32, y: i32) -> i32 {
+        match self.session.add_sub_instance(board.max(0) as u32, x, y) {
+            Some(id) => id as i32,
+            None => -1,
+        }
+    }
+
+    /// 双击进入子电路
+    #[func]
+    fn enter_sub(&mut self, id: i32) -> bool {
+        self.session.enter_sub(id as u32)
+    }
+
+    /// 退回第 depth 层（0 = 根图纸）
+    #[func]
+    fn goto_depth(&mut self, depth: i64) -> bool {
+        self.session.goto_depth(depth.max(0) as usize)
+    }
+
+    /// 把选中的元件封装成新图纸；返回新图纸索引，失败返回 -1
+    #[func]
+    fn extract_to_sub(&mut self, ids: PackedInt32Array, name: GString) -> i64 {
+        let sel: Vec<u32> = ids.as_slice().iter().map(|v| (*v).max(0) as u32).collect();
+        match self.session.extract_to_sub(&sel, &name.to_string()) {
+            Some(i) => i as i64,
+            None => -1,
+        }
+    }
+
+    /// 层次展开是否被截断（自引用 / 超深）
+    #[func]
+    fn hierarchy_truncated(&self) -> bool {
+        self.session.hierarchy_truncated()
+    }
+
+    /// 某实例的存储器内容：显示屏帧缓冲 / RAM / ROM
+    #[func]
+    fn instance_mem(&self, id: i32) -> PackedInt64Array {
+        self.session.instance_mem(id as u32).iter().map(|v| *v as i64).collect()
+    }
+
+    // -----------------------------------------------------------------------
+    // 波形（§9.1）
+    // -----------------------------------------------------------------------
+
+    #[func]
+    fn wave_watch(&mut self, net: i64, name: GString) -> bool {
+        if net < 0 {
+            return false;
+        }
+        self.session.wave_watch(net as u32, &name.to_string())
+    }
+
+    #[func]
+    fn wave_unwatch(&mut self, net: i64) {
+        if net >= 0 {
+            self.session.wave_unwatch(net as u32);
+        }
+    }
+
+    #[func]
+    fn wave_clear(&mut self) {
+        self.session.wave_clear();
+    }
+
+    /// [net, width, sample_count] × N
+    #[func]
+    fn wave_traces(&self) -> PackedInt64Array {
+        let mut out = PackedInt64Array::new();
+        for i in 0..self.session.wave_len() {
+            let Some(t) = self.session.wave_trace(i) else {
+                continue;
+            };
+            out.push(net_code(t.net));
+            out.push(t.width as i64);
+            out.push(t.samples.len() as i64);
+        }
+        out
+    }
+
+    #[func]
+    fn wave_names(&self) -> PackedStringArray {
+        (0..self.session.wave_len())
+            .filter_map(|i| self.session.wave_trace(i))
+            .map(|t| GString::from(t.name.as_str()))
+            .collect()
+    }
+
+    #[func]
+    fn wave_samples(&self, i: i64) -> PackedInt64Array {
+        match self.session.wave_trace(i.max(0) as usize) {
+            Some(t) => t.samples.iter().map(|v| *v as i64).collect(),
+            None => PackedInt64Array::new(),
+        }
+    }
+
+    #[func]
+    fn wave_vcd(&self) -> GString {
+        GString::from(self.session.wave_vcd().as_str())
+    }
+
+    /// 波形是否已录满（壳据此提示清空）
+    #[func]
+    fn wave_saturated(&self) -> bool {
+        self.session.wave_saturated()
+    }
+
+    // -----------------------------------------------------------------------
+    // 全工程 DRC：层次下每张图纸都要查
+    // -----------------------------------------------------------------------
+
+    /// [board, kind, severity, net, inst] × N
+    #[func]
+    fn drc_all(&self) -> PackedInt64Array {
+        let mut out = PackedInt64Array::new();
+        for (b, i) in self.session.drc_all() {
+            out.push(b as i64);
+            out.push(i.kind.code());
+            out.push(i.severity.code());
+            out.push(net_code(i.net));
+            out.push(if i.inst == u32::MAX { -1 } else { i.inst as i64 });
+        }
+        out
+    }
+
+    #[func]
+    fn drc_all_details(&self) -> PackedStringArray {
+        self.session.drc_all().iter().map(|(_, i)| GString::from(i.detail.as_str())).collect()
+    }
+
+
+    /// 批量移动（一次编辑、一次撤销）
+    #[func]
+    fn move_components(&mut self, ids: PackedInt32Array, dx: i32, dy: i32) {
+        let sel: Vec<u32> = ids.as_slice().iter().map(|v| (*v).max(0) as u32).collect();
+        self.session.edit_batch(|b| {
+            for id in sel {
+                if let Some(inst) = b.instance(id) {
+                    let (x, y) = (inst.x, inst.y);
+                    b.set_pos(id, x + dx, y + dy);
+                }
+            }
+        });
+    }
+
+    /// 批量删除。必须**降序**删除：删一个实例会让后面的索引全部前移。
+    #[func]
+    fn remove_components(&mut self, ids: PackedInt32Array) {
+        let mut sel: Vec<u32> = ids.as_slice().iter().map(|v| (*v).max(0) as u32).collect();
+        sel.sort_unstable();
+        sel.dedup();
+        self.session.edit_batch(|b| {
+            for &id in sel.iter().rev() {
+                b.remove_instance(id);
+            }
+        });
+    }
+
+    /// [value, unknown, width] —— 某实例某引脚的当前值
+    #[func]
+    fn pin_value(&self, id: i32, slot: i32) -> PackedInt64Array {
+        let inst = id.max(0) as u32;
+        let s = slot.max(0) as usize;
+        let v = self.session.pin_value(inst, s);
+        let w = self
+            .session
+            .board()
+            .instance(inst)
+            .and_then(|i| i.pins.get(s).map(|p| p.width))
+            .unwrap_or(1);
+        let mut out = PackedInt64Array::new();
+        out.push(v.val as i64);
+        out.push(v.unk as i64);
+        out.push(w as i64);
+        out
+    }
+
+    /// [board, kind, severity] × N —— 面板只画摘要时用，比拿全量数组便宜
+    #[func]
+    fn drc_all_kinds(&self) -> PackedInt64Array {
+        let mut out = PackedInt64Array::new();
+        for (b, i) in self.session.drc_all() {
+            out.push(b as i64);
+            out.push(i.kind.code());
+            out.push(i.severity.code());
+        }
+        out
+    }
+
+    /// [kind, label] × N —— 问题类别对照表
+    #[func]
+    fn drc_kind_labels(&self) -> PackedStringArray {
+        const KINDS: [drc::IssueKind; 6] = [
+            drc::IssueKind::MultiDriver,
+            drc::IssueKind::WidthMismatch,
+            drc::IssueKind::DanglingInput,
+            drc::IssueKind::CombinationalLoop,
+            drc::IssueKind::GatedClock,
+            drc::IssueKind::CircularReference,
+        ];
+        KINDS.iter().map(|k| GString::from(k.label())).collect()
     }
 }
 

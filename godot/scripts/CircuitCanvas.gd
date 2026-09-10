@@ -9,6 +9,7 @@ extends Control
 const GRID := 8.0
 const PIN_PX := 3.0
 const NO_NET := 4294967295
+const CUSTOM_COLOR := Color(0.22, 0.40, 0.50)
 const BASE_COLORS := [
 	Color(0.30, 0.42, 0.55),  # io
 	Color(0.30, 0.48, 0.38),  # logic
@@ -20,6 +21,7 @@ const BASE_COLORS := [
 signal selection_changed(id: int)
 signal status_changed(text: String)
 signal stats_changed(text: String)
+signal wave_changed()
 
 var core = null
 
@@ -44,6 +46,14 @@ var label_names := PackedStringArray()
 # 交互
 var pending_def := ""
 var selected := -1
+var selection: Array[int] = []
+var sub_names := PackedStringArray()
+var def_seven_seg := -1
+var def_display := -1
+var box_selecting := false
+var box_start := Vector2i.ZERO
+var box_end := Vector2i.ZERO
+var _double_clicked := false
 var dragging := false
 var drag_anchor := Vector2i.ZERO
 var drag_grab := Vector2i.ZERO
@@ -100,9 +110,13 @@ func refresh() -> void:
 	ann_texts = core.annotation_texts()
 	label_pos = core.labels()
 	label_names = core.label_names()
+	sub_names = core.board_names()
 	if lib_labels.is_empty():
 		lib_labels = core.library_labels()
 		lib_cats = core.library_category_codes()
+		var lib_ids = core.library_ids()
+		def_seven_seg = lib_ids.find("seven_seg")
+		def_display = lib_ids.find("display")
 	queue_redraw()
 	_emit_stats()
 
@@ -194,6 +208,7 @@ func _draw() -> void:
 	_draw_annotations()
 	_draw_labels()
 	_draw_wiring_preview()
+	_draw_box_select()
 
 
 func _draw_grid() -> void:
@@ -257,24 +272,37 @@ func _draw_wires() -> void:
 
 func _draw_components() -> void:
 	var i := 0
-	while i + 6 < comps.size():
+	while i + 7 < comps.size():
 		var id := int(comps[i])
 		var def_idx := int(comps[i + 1])
 		var x := int(comps[i + 2])
 		var y := int(comps[i + 3])
 		var w := int(comps[i + 4])
 		var h := int(comps[i + 5])
-		var off := drag_delta if (dragging and id == selected) else Vector2i.ZERO
+		var sub := int(comps[i + 7])
+		var off := drag_delta if (dragging and _is_selected(id)) else Vector2i.ZERO
 		var tl := world_to_screen(Vector2(float(x + off.x), float(y + off.y)))
 		var br := world_to_screen(Vector2(float(x + off.x + w), float(y + off.y + h)))
 		var rect := Rect2(tl, br - tl)
-		var cat := int(lib_cats[def_idx]) if def_idx < lib_cats.size() else 0
-		var col: Color = BASE_COLORS[cat % BASE_COLORS.size()]
+		var col: Color
+		if sub >= 0:
+			col = CUSTOM_COLOR
+		else:
+			var cat := int(lib_cats[def_idx]) if def_idx < lib_cats.size() else 0
+			col = BASE_COLORS[cat % BASE_COLORS.size()]
 		draw_rect(rect, col, true)
 		draw_rect(rect, col.lightened(0.45), false, 1.0)
-		if id == selected:
+		if _is_selected(id):
 			draw_rect(rect.grow(2.0), Color(1.0, 0.85, 0.35), false, 2.0)
-		if zoom > 0.5 and def_idx < lib_labels.size():
+		if sub >= 0:
+			if zoom > 0.35:
+				var nm := String(sub_names[sub]) if sub < sub_names.size() else "子电路"
+				draw_string(_font, tl + Vector2(3.0, 10.0), nm, HORIZONTAL_ALIGNMENT_LEFT, -1, 9, Color(0.85, 0.95, 1.0))
+		elif def_idx == def_seven_seg:
+			_draw_seven_seg(rect, id)
+		elif def_idx == def_display:
+			_draw_display(rect, id)
+		elif zoom > 0.5 and def_idx < lib_labels.size():
 			draw_string(
 				_font,
 				tl + Vector2(3.0, 10.0),
@@ -284,7 +312,47 @@ func _draw_components() -> void:
 				9,
 				Color(0.88, 0.91, 0.95)
 			)
-		i += 7
+		i += 8
+
+
+## 七段数码管：十进制读数直接画在元件上（值来自引脚，别处不再存一份）
+func _draw_seven_seg(rect: Rect2, id: int) -> void:
+	draw_rect(rect, Color(0.05, 0.06, 0.08), true)
+	var v := _first_input_value(id)
+	draw_string(
+		_font,
+		rect.position + Vector2(4.0, rect.size.y * 0.5 + 7.0),
+		str(v),
+		HORIZONTAL_ALIGNMENT_LEFT,
+		-1,
+		int(maxf(10.0, rect.size.y * 0.75)),
+		Color(0.35, 1.0, 0.55)
+	)
+
+
+## 点阵屏：帧缓冲住在 core 里（instance_mem），壳只读不写
+func _draw_display(rect: Rect2, id: int) -> void:
+	draw_rect(rect, Color(0.03, 0.04, 0.05), true)
+	var fb: PackedInt64Array = core.instance_mem(id)
+	if fb.is_empty():
+		return
+	var info = core.component_info(id)
+	var cols := int(info[1]) if info.size() > 1 else 8
+	if cols <= 0:
+		cols = 8
+	var rows := fb.size()
+	var cw := rect.size.x / float(cols)
+	var ch := rect.size.y / float(rows)
+	for r in rows:
+		var bits := int(fb[r])
+		for c in cols:
+			if bits & (1 << c):
+				draw_rect(Rect2(rect.position + Vector2(c * cw, r * ch), Vector2(cw, ch)), Color(0.4, 0.95, 0.6), true)
+
+
+func _first_input_value(id: int) -> int:
+	var p: PackedInt64Array = core.pin_value(id, 0)
+	return int(p[0]) if p.size() > 0 else 0
 
 
 func _draw_pins() -> void:
@@ -416,6 +484,7 @@ func _on_mouse_button(e: InputEventMouseButton) -> void:
 		return
 	accept_event()
 	if e.pressed:
+		_double_clicked = e.double_click
 		_on_left_press(cell)
 	else:
 		_on_left_release(cell)
@@ -426,8 +495,7 @@ func _on_left_press(cell: Vector2i) -> void:
 	if pending_def != "":
 		var id: int = core.add_component(pending_def, cell.x, cell.y)
 		if id >= 0:
-			selected = id
-			selection_changed.emit(id)
+			set_selection([id])
 			status_changed.emit("已放置")
 		pending_def = ""
 		drag_delta = Vector2i.ZERO
@@ -442,11 +510,26 @@ func _on_left_press(cell: Vector2i) -> void:
 		queue_redraw()
 		return
 
-	# 3) 元件上 → 选中并准备拖动
+	# 3) 元件上 → 选中 / 多选 / 双击进子电路
 	var cid: int = core.pick_component(cell.x, cell.y)
 	if cid >= 0:
-		selected = cid
-		selection_changed.emit(cid)
+		if _double_clicked:
+			_double_clicked = false
+			if core.enter_sub(cid):
+				set_selection([])
+				refresh()
+				center_on_content()
+				status_changed.emit("进入子电路")
+				return
+		if _shift_down():
+			var sel := selected_ids()
+			if sel.has(cid):
+				sel.erase(cid)
+			else:
+				sel.append(cid)
+			set_selection(sel)
+		elif not selected_ids().has(cid):
+			set_selection([cid])
 		var info = core.component_info(cid)
 		if info.size() >= 8:
 			drag_grab = cell - Vector2i(int(info[5]), int(info[6]))
@@ -462,9 +545,12 @@ func _on_left_press(cell: Vector2i) -> void:
 		_edit_annotation(aid)
 		return
 
-	# 5) 空白 → 取消选择
-	selected = -1
-	selection_changed.emit(-1)
+	# 5) 空白 → 开始框选
+	box_selecting = true
+	box_start = cell
+	box_end = cell
+	if not _shift_down():
+		set_selection([])
 	queue_redraw()
 
 
@@ -481,6 +567,12 @@ func _on_left_release(cell: Vector2i) -> void:
 		queue_redraw()
 		return
 
+	if box_selecting:
+		box_selecting = false
+		_commit_box_select()
+		queue_redraw()
+		return
+
 	if dragging:
 		dragging = false
 		if drag_delta == Vector2i.ZERO:
@@ -494,8 +586,7 @@ func _on_left_release(cell: Vector2i) -> void:
 		else:
 			var info2 = core.component_info(selected)
 			if info2.size() >= 8:
-				var p := Vector2i(int(info2[5]), int(info2[6])) + drag_delta
-				core.move_component(selected, p.x, p.y)
+				core.move_components(PackedInt32Array(selected_ids()), drag_delta.x, drag_delta.y)
 		drag_delta = Vector2i.ZERO
 		queue_redraw()
 
@@ -507,6 +598,10 @@ func _on_mouse_motion(e: InputEventMouseMotion) -> void:
 		queue_redraw()
 		return
 	var cell := screen_to_cell(e.position)
+	if box_selecting:
+		box_end = cell
+		queue_redraw()
+		return
 	if dragging and selected >= 0:
 		drag_delta = cell - drag_anchor
 		queue_redraw()
@@ -578,8 +673,7 @@ func _on_key(e: InputEventKey) -> void:
 		KEY_ESCAPE:
 			pending_def = ""
 			wiring_from = Vector2i(-1, -1)
-			selected = -1
-			selection_changed.emit(-1)
+			set_selection([])
 			queue_redraw()
 		KEY_SPACE:
 			do_tick()
@@ -589,6 +683,12 @@ func _on_key(e: InputEventKey) -> void:
 			_insert_annotation_at_hover()
 		KEY_L:
 			_insert_label_at_hover()
+		KEY_W:
+			toggle_watch_at_mouse()
+		KEY_E:
+			enter_selected_sub()
+		KEY_B:
+			go_up_level()
 
 
 ## 在鼠标所在格插入一条注释，并立刻让用户输入内容
@@ -755,12 +855,13 @@ func do_reset() -> void:
 
 
 func delete_selected() -> void:
-	if selected >= 0:
-		core.remove_component(selected)
-		selected = -1
-		selection_changed.emit(-1)
-		status_changed.emit("已删除元件")
-		queue_redraw()
+	var sel := selected_ids()
+	if sel.is_empty():
+		return
+	core.remove_components(PackedInt32Array(sel))
+	set_selection([])
+	status_changed.emit("已删除 %d 个元件" % sel.size())
+	queue_redraw()
 
 
 func rotate_selected() -> void:
@@ -786,8 +887,7 @@ func load_example(example_id: String) -> void:
 	if not core.load_example(example_id):
 		status_changed.emit("载入示例失败")
 		return
-	selected = -1
-	selection_changed.emit(-1)
+	set_selection([])
 	refresh()
 	center_on_content()
 	status_changed.emit("已载入示例：%s" % example_id)
@@ -819,6 +919,169 @@ func load_project() -> void:
 		status_changed.emit("已载入存档")
 	else:
 		status_changed.emit("存档损坏，未载入")
+
+
+
+
+# ---------------------------------------------------------------------------
+# 多选 / 框选 / 层次（ADR-28）
+# ---------------------------------------------------------------------------
+
+## 当前选区。selected 是"主选中"（属性面板与拖动看它），selection 是完整集合
+func selected_ids() -> Array:
+	if selection.is_empty() and selected >= 0:
+		return [selected]
+	return selection.duplicate()
+
+
+func _is_selected(id: int) -> bool:
+	if not selection.is_empty():
+		return selection.has(id)
+	return id == selected
+
+
+func set_selection(ids: Array) -> void:
+	selection.clear()
+	for v in ids:
+		selection.append(int(v))
+	selected = selection[0] if selection.size() > 0 else -1
+	selection_changed.emit(selected)
+
+
+func _shift_down() -> bool:
+	return Input.is_key_pressed(KEY_SHIFT)
+
+
+func _draw_box_select() -> void:
+	if not box_selecting:
+		return
+	var a := world_to_screen(Vector2(box_start))
+	var b := world_to_screen(Vector2(box_end + Vector2i(1, 1)))
+	var r := Rect2(a, b - a).abs()
+	draw_rect(r, Color(0.35, 0.7, 1.0, 0.15), true)
+	draw_rect(r, Color(0.45, 0.8, 1.0, 0.8), false, 1.0)
+
+
+func _commit_box_select() -> void:
+	var lo := Vector2i(mini(box_start.x, box_end.x), mini(box_start.y, box_end.y))
+	var hi := Vector2i(maxi(box_start.x, box_end.x), maxi(box_start.y, box_end.y))
+	var found: Array[int] = []
+	var i := 0
+	while i + 7 < comps.size():
+		var x := int(comps[i + 2])
+		var y := int(comps[i + 3])
+		var w := int(comps[i + 4])
+		var h := int(comps[i + 5])
+		if x <= hi.x and y <= hi.y and x + w - 1 >= lo.x and y + h - 1 >= lo.y:
+			found.append(int(comps[i]))
+		i += 8
+	if _shift_down():
+		var sel := selected_ids()
+		for id in found:
+			if not sel.has(id):
+				sel.append(id)
+		set_selection(sel)
+	else:
+		set_selection(found)
+	status_changed.emit("选中 %d 个元件" % selected_ids().size())
+
+
+## 把当前选区封装成子电路；返回新图纸索引，失败返回 -1
+func extract_selection(cname: String) -> int:
+	var sel := selected_ids()
+	if sel.is_empty():
+		status_changed.emit("先选中要封装的元件")
+		return -1
+	var idx: int = core.extract_to_sub(PackedInt32Array(sel), cname)
+	if idx < 0:
+		status_changed.emit("封装失败")
+		return -1
+	set_selection([])
+	refresh()
+	center_on_content()
+	status_changed.emit("已封装为子电路：%s" % cname)
+	return idx
+
+
+func selection_size() -> int:
+	return selected_ids().size()
+
+
+## 观察 / 取消观察鼠标下的导线（§9.1）。波形由 core 逐拍采样，壳只负责画。
+func toggle_watch_at_mouse() -> void:
+	if core == null:
+		return
+	var cell := screen_to_cell(get_local_mouse_position())
+	var wi: int = core.pick_wire(cell.x, cell.y, 1)
+	if wi < 0:
+		status_changed.emit("鼠标下没有导线")
+		return
+	var net := _wire_net(wi)
+	if net < 0:
+		status_changed.emit("该导线没有网络")
+		return
+	var nm := "n%d" % net
+	if core.wave_watch(net, nm):
+		status_changed.emit("已观察 %s" % nm)
+	else:
+		core.wave_unwatch(net)
+		status_changed.emit("已取消观察 %s" % nm)
+	wave_changed.emit()
+	queue_redraw()
+
+
+func _wire_net(wi: int) -> int:
+	var i := wi * 5
+	if i + 2 >= w_ranges.size():
+		return -1
+	return int(w_ranges[i + 2])
+
+
+## 进入选中的子电路（双击实例同样可以）
+func enter_selected_sub() -> void:
+	if selected < 0:
+		status_changed.emit("先选中一个子电路实例")
+		return
+	if core.enter_sub(selected):
+		set_selection([])
+		refresh()
+		center_on_content()
+		status_changed.emit("进入子电路")
+		queue_redraw()
+	else:
+		status_changed.emit("该元件不是子电路")
+
+
+## 回到上一层
+func go_up_level() -> void:
+	var d: int = core.depth()
+	if d <= 0:
+		status_changed.emit("已在根图纸")
+		return
+	core.goto_depth(d - 1)
+	set_selection([])
+	refresh()
+	center_on_content()
+	queue_redraw()
+	status_changed.emit("返回上一层")
+
+
+## 直接跳到第 depth 层（面包屑点击）
+func goto_level(depth: int) -> void:
+	if core.goto_depth(depth):
+		set_selection([])
+		refresh()
+		center_on_content()
+		queue_redraw()
+
+
+## 打开图纸库里的某张图纸
+func open_board_index(idx: int) -> void:
+	if core.open_board(idx):
+		set_selection([])
+		refresh()
+		center_on_content()
+		queue_redraw()
 
 
 func clear_project() -> void:

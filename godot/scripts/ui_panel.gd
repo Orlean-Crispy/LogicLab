@@ -456,7 +456,22 @@ func _on_check_pressed() -> void:
 		_drc_label.text += "\n关键路径：%d 级（含 %d 个组件）" % [int(cp[0]), cp.size() - 1]
 
 	if _drc_label != null:
-		_drc_label.text = "DRC：错误 %d · 警告 %d" % [errors, warnings]
+		var total_errors := 0
+		var total_warnings := 0
+		var board_total: int = int(core.board_names().size())
+		if board_total > 1:
+			var kinds = core.drc_all_kinds()
+			var ki := 0
+			while ki + 2 < kinds.size():
+				if int(kinds[ki + 2]) == 1:
+					total_errors += 1
+				else:
+					total_warnings += 1
+				ki += 3
+		var scope := ""
+		if board_total > 1:
+			scope = "  ·  全工程 %d 错 %d 警（%d 张图纸）" % [total_errors, total_warnings, board_total]
+		_drc_label.text = "本图纸 %d 错 · %d 警%s" % [errors, warnings, scope]
 		_drc_label.add_theme_color_override(
 			"font_color",
 			Color(0.95, 0.45, 0.45) if errors > 0 else (Color(0.9, 0.78, 0.35) if warnings > 0 else Color(0.45, 0.85, 0.55))

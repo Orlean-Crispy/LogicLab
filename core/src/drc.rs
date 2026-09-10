@@ -14,7 +14,7 @@
 
 use std::collections::HashMap;
 
-use crate::board::{Board, Netlist, NO_NET};
+use crate::board::{Board, Netlist, NO_NET, NO_SUB};
 use crate::defs::{DefId, Dir};
 
 /// 问题严重程度
@@ -51,6 +51,8 @@ pub enum IssueKind {
     CombinationalLoop,
     /// 门控时钟（警告）：时序元件的 clock 不是来自 Clock 组件
     GatedClock,
+    /// 图纸引用了自己，或几张图纸互相引用成环（层次，ADR-28）
+    CircularReference,
 }
 
 impl IssueKind {
@@ -61,6 +63,7 @@ impl IssueKind {
             IssueKind::DanglingInput => 2,
             IssueKind::CombinationalLoop => 3,
             IssueKind::GatedClock => 4,
+            IssueKind::CircularReference => 5,
         }
     }
 
@@ -71,6 +74,7 @@ impl IssueKind {
             IssueKind::DanglingInput => "悬空输入",
             IssueKind::CombinationalLoop => "组合环",
             IssueKind::GatedClock => "门控时钟",
+            IssueKind::CircularReference => "循环引用",
         }
     }
 }
@@ -95,6 +99,77 @@ pub fn check(board: &Board) -> Vec<Issue> {
     check_combinational_loops(board, &nl, &mut issues);
     check_gated_clocks(board, &nl, &mut issues);
     issues
+}
+
+/// 全工程检查：每张图纸各查一遍，再补上跨图纸的引用问题。
+///
+/// 返回 (图纸索引, 问题)。层次电路的每张图纸都是独立可检查的单元——
+/// 子电路外壳的引脚方向来自图纸接口，所以父图纸的网络检查天然正确。
+pub fn check_project(boards: &[Board]) -> Vec<(u32, Issue)> {
+    let mut out = Vec::new();
+    for (i, b) in boards.iter().enumerate() {
+        for (k, inst) in b.instances.iter().enumerate() {
+            if inst.sub != NO_SUB && inst.sub as usize == i {
+                out.push((
+                    i as u32,
+                    Issue {
+                        kind: IssueKind::CircularReference,
+                        severity: Severity::Error,
+                        net: NO_NET,
+                        inst: k as u32,
+                        detail: format!("图纸「{}」引用了自己", b.name),
+                    },
+                ));
+            }
+        }
+        for issue in check(b) {
+            out.push((i as u32, issue));
+        }
+        // 间接引用环：i → j → … → i
+        for (k, inst) in b.instances.iter().enumerate() {
+            if inst.sub == NO_SUB || inst.sub as usize >= boards.len() || inst.sub as usize == i {
+                continue;
+            }
+            if reaches(boards, inst.sub, i as u32) {
+                out.push((
+                    i as u32,
+                    Issue {
+                        kind: IssueKind::CircularReference,
+                        severity: Severity::Error,
+                        net: NO_NET,
+                        inst: k as u32,
+                        detail: format!("图纸「{}」经引用链绕回自己", b.name),
+                    },
+                ));
+            }
+        }
+    }
+    out
+}
+
+/// 从 from 出发能否沿引用边到达 target
+fn reaches(boards: &[Board], from: u32, target: u32) -> bool {
+    let n = boards.len();
+    let mut seen = vec![false; n];
+    let mut stack = vec![from];
+    while let Some(x) = stack.pop() {
+        let Some(b) = boards.get(x as usize) else {
+            continue;
+        };
+        for inst in &b.instances {
+            if inst.sub == NO_SUB || inst.sub as usize >= n {
+                continue;
+            }
+            if inst.sub == target {
+                return true;
+            }
+            if !seen[inst.sub as usize] {
+                seen[inst.sub as usize] = true;
+                stack.push(inst.sub);
+            }
+        }
+    }
+    false
 }
 
 /// 组件级有向图：A → B 表示 A 的输出驱动了 B 的输入。

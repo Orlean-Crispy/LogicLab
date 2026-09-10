@@ -20,8 +20,9 @@
 //! - 事件驱动 + 脏标记：输入未变的组件直接跳过求值
 //! - 邻接表为 CSR 布局，缓存友好；不做指针追逐，不做 HashMap 查找
 
-use crate::board::{Board, Netlist, NO_NET};
+use crate::board::{Board, NO_NET};
 use crate::defs::{eval, CompState, DefId, Params};
+use crate::elaborate::Flat;
 use crate::values::{NetValue, Width};
 
 /// 实例无对应可求值组件（如探针）
@@ -113,63 +114,56 @@ impl Engine {
     // 装载
     // -----------------------------------------------------------------------
 
-    /// 由电路板重建运行结构（自行推导网表）。
-    ///
-    /// 若调用方已经推导过网表，请改用 load_netlist，避免同一张板子重复推导——
-    /// 万级电路的推导是毫秒级开销。
+    /// 由电路板重建运行结构（单图纸，供单元测试与工具使用）
     pub fn load_board(&mut self, board: &Board) {
         let nl = board.compile();
-        self.load_netlist(board, &nl);
+        let mut flat = Flat::single(board, &nl);
+        self.load_flat(&mut flat);
     }
 
-    /// 由**已推导好的**网表重建运行结构
-    pub fn load_netlist(&mut self, board: &Board, nl: &Netlist) {
-
+    /// 由**已展开的**扁平网表重建运行结构。
+    ///
+    /// flat.states 会被取走而不是复制——内存型组件（RAM / 显示屏）的状态
+    /// 可能有几十万个字，复制一遍纯属浪费。
+    pub fn load_flat(&mut self, flat: &mut Flat) {
         self.comps.clear();
         self.states.clear();
-        self.comp_of_inst = vec![NO_COMP; board.instances.len()];
+        self.comp_of_inst = vec![NO_COMP; flat.inst_count as usize];
 
-        for (ii, inst) in board.instances.iter().enumerate() {
-            if inst.def.is_sink() {
-                continue;
-            }
-            let ci = self.comps.len() as u32;
-            self.comp_of_inst[ii] = ci;
-            let base = nl.pin_start[ii];
-            let in_count = inst.pins.iter().filter(|p| p.dir == crate::defs::Dir::In).count();
-            let out_count = inst.pins.len() - in_count;
+        for (ci, fc) in flat.comps.iter().enumerate() {
+            self.comp_of_inst[fc.global_inst as usize] = ci as u32;
             self.comps.push(CompRt {
-                def: inst.def,
-                params: inst.params,
-                in_start: base,
-                in_count: in_count as u16,
-                out_start: base + in_count as u32,
-                out_count: out_count as u16,
-                always: inst.def == DefId::Clock,
-                inst: ii as u32,
+                def: fc.def,
+                params: fc.params,
+                in_start: fc.pin_start,
+                in_count: fc.in_count,
+                out_start: fc.pin_start + fc.in_count as u32,
+                out_count: fc.out_count,
+                always: fc.def == DefId::Clock,
+                inst: fc.global_inst,
             });
-            self.states.push(inst.initial_state());
         }
+        self.states = std::mem::take(&mut flat.states);
 
         // ---- 网络值 / 位宽 ----
-        let np = nl.pin_net.len();
+        let np = flat.pin_net.len();
         self.net_val.clear();
-        self.net_val.resize(nl.net_count as usize, NetValue::ZERO);
+        self.net_val.resize(flat.net_count as usize, NetValue::ZERO);
         self.net_width.clear();
-        self.net_width.resize(nl.net_count as usize, 1);
-        for (p, &n) in nl.pin_net.iter().enumerate() {
+        self.net_width.resize(flat.net_count as usize, 1);
+        for (p, &n) in flat.pin_net.iter().enumerate() {
             if n == NO_NET {
                 continue;
             }
-            let w = nl.pin_width[p];
+            let w = flat.pin_width[p];
             if w > self.net_width[n as usize] {
                 self.net_width[n as usize] = w;
             }
         }
-        self.pin_net = nl.pin_net.clone();
+        self.pin_net = flat.pin_net.clone();
 
         // ---- 接收端 CSR ----
-        let nets = nl.net_count as usize;
+        let nets = flat.net_count as usize;
         let mut off = vec![0u32; nets + 1];
         for c in &self.comps {
             for k in 0..c.in_count as usize {
@@ -452,6 +446,18 @@ impl Engine {
 
     pub fn total_eval_count(&self) -> u64 {
         self.total_eval
+    }
+
+    /// 某实例的存储器内容（RAM / ROM / 显示屏帧缓冲）
+    #[inline]
+    pub fn instance_mem(&self, inst: u32) -> &[u32] {
+        let Some(&ci) = self.comp_of_inst.get(inst as usize) else {
+            return &[];
+        };
+        if ci == NO_COMP {
+            return &[];
+        }
+        &self.states[ci as usize].mem
     }
 
     /// 某实例的输出引脚当前值（UI 探针用）

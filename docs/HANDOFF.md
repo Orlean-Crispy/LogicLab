@@ -5,19 +5,20 @@
 > 版本留档：`releases/{X86,ARM64}/`，命名 `LogicLab-<版本>-<架构>.exe`
 > 远 端：https://github.com/Orlean-Crispy/LogicLab
 
-## 1. 当前状态：0.1.0 Beta 4
+## 1. 当前状态：0.1.0 正式版
 
 | 部分 | 状态 |
 |---|---|
-| `core`（纯 Rust，零引擎依赖） | **83** 个单测全绿 |
-| `cli`（headless 命令行） | components / demo / example / info / run / bench |
+| `core`（纯 Rust，零引擎依赖） | **94** 个单测全绿 |
+| `cli`（headless 命令行） | components / schema / demo / example / info / run / bench |
 | `bridge`（gdext 薄桥） | 基于 Session，x64 + arm64 |
 | Godot 壳 | GUI 与 headless 均启动无错 |
-| 回归 `godot/tests/smoke.gd` | **71** 项全通过 |
+| 回归 `godot/tests/smoke.gd` | **116** 项全通过 |
 
-已实现：放置/拖动/旋转/删除/**撤销重做**/连线（自动避让）/开关/参数编辑/
-文本注释/**网络标签**/平移缩放/单步运行调速/存取/**DRC 与双击定位**/
-**关键路径报告**/**悬停探针显示值**。
+**沙盒功能已具备**：放置/拖动/旋转/删除/**撤销重做**/连线（自动避让）/开关/参数编辑/
+文本注释/**网络标签**/平移缩放/单步运行调速/存取/DRC 与双击定位/关键路径/悬停探针/
+**多选与框选**/**层次封装（子电路）**/**图纸库与面包屑导航**/**波形查看 + VCD 导出**/
+**数码管与内存映射点阵屏**。
 
 ## 2. 架构（三层 + 门面）
 
@@ -27,24 +28,36 @@ Godot 壳（GDScript）    交互 / 自绘渲染 / 面板（不硬编码组件�
 bridge（gdext，薄）     命令翻译 + CircuitView → PackedInt64Array
       ↓
 core
-  ├─ session  编辑与仿真的统一门面 ← 编辑即重置（ADR-23）在这里保证
-  ├─ board    数据模型 / 网表推导 / 自动走线 / 命中测试
-  ├─ engine   双缓冲 tick + 脏传播
-  ├─ defs     组件知识唯一数据源（含参数描述）
-  ├─ view     壳无关呈现数据
-  ├─ save     工程 JSON
-  └─ drc      设计规则检查
+  ├─ session    编辑与仿真的统一门面 ← 编辑即重置（ADR-23）在这里保证
+  ├─ board      数据模型 / 网表推导 / 自动走线 / 命中测试
+  ├─ elaborate  层次展开：多图纸 → 一张扁平网表（ADR-28）
+  ├─ engine     双缓冲 tick + 脏传播（只认 Flat）
+  ├─ defs       组件知识唯一数据源（含参数描述）
+  ├─ view       壳无关呈现数据
+  ├─ save       工程 JSON
+  └─ drc        设计规则检查（全工程 + 循环引用）
       ↓
 cli（headless）         同一套 core 的非 Godot 消费者
 ```
 
 **铁律**：core 依赖树里没有任何引擎类型。
 
-## 3. 验证手段（最省事的顺序）
+## 3. 层次模型（ADR-28）怎么工作的
+
+- 一张图纸就是一个**子电路定义**；图纸里的 `input_pin` / `output_pin` 是它的接口。
+- 接口引脚按**元件名排序**，同名按实例索引——顺序稳定、可预测。
+- `Session::extract_to_sub` 是 TC 那种"选中一片→封装成元件"：跨边界的连线自动
+  转成接口，外部连线自动重新接回。
+- 仿真前 `elaborate::build` 把整个层次树压成 `Flat`：外壳不产生运行时组件，
+  外壳引脚与接口引脚并成同一个网络。**热路径完全不知道层次存在**。
+- 同一张图纸实例化多次就展开多份，互不共享状态；自引用/超深（>32）被截断并置
+  `truncated`，绝不允许递归爆栈。
+
+## 4. 验证手段（最省事的顺序）
 
 ```powershell
-cargo test                                    # core + cli，不需要 Godot
-cargo run --release -p logiclab-cli -- bench   # 万级规模基准
+cargo test                                     # core + cli，不需要 Godot
+cargo run --release -p logiclab-cli -- bench    # 万级规模基准
 
 # 全链路（headless 会加载 GDExtension，最快）
 & 'C:\Users\Orlean-Crispy\Desktop\Godot_v4.7.2-stable.exe' --headless --path godot --script res://tests/smoke.gd
@@ -56,15 +69,16 @@ cargo run --release -p logiclab-cli -- bench   # 万级规模基准
 单个脚本语法检查用 `godot_validate_script` 工具——它能看到真错误，
 而运行时只会含糊地报 "Could not resolve script"。
 
-## 4. 实测（release）
+## 5. 实测（release）
 
 | 指标 | 数值 | 规格 |
 |---|---|---|
-| 10001 组件每拍仿真 | ~0.23 ms | < 5 ms ✅ |
-| 万级电路装载（含网表推导） | 3.4 ms | — |
-| 单文件体积 | x64 43.7 MB / arm64 34.9 MB | — |
+| 10001 组件每拍仿真 | ~0.41 ms | < 5 ms ✅ |
+| 万级电路单次编辑（含展开） | ~13.5 ms | 一帧内 ✅ |
+| 撤销一步 | ~15.8 ms | — |
+| 单文件体积 | x64 43.7 MB / arm64 35.0 MB | — |
 
-## 5. 关键坑（避免重复踩）
+## 6. 关键坑（避免重复踩）
 
 - **GDScript 只认 `#` 注释**：写 `//` 或 `///` 会让整个脚本解析失败，
   而运行时只报 "Could not resolve script"，必须用校验工具才看得到真错误。
@@ -79,17 +93,16 @@ cargo run --release -p logiclab-cli -- bench   # 万级规模基准
 - **不要用 `godot_run_project`**：它会往项目里装 autoload 污染 `project.godot`。
 - 模型无图像输入：**不要依赖截图**，用 smoke 测试或打印数值验证。
 
-## 6. 待办（按优先级）
+## 7. 还没做的（按价值排序）
 
-1. **封装**（Board → 组件，含自引用环检测与涌现延迟 ADR-28）—— 剩下的最大一块架构工作
-2. **波形查看器 + VCD 导出**（层级命名，§9.1）
-3. **测试台**（CSV + 随机模式 + 层级断言，§9.3）
-4. **Verilog 导出**（DRC 与关键路径都已就位，正好接上，§9.2）
-5. 仿真 checkpoint（§9.7）
-6. 多 Board、框选、复制粘贴
-7. 虚拟外设（Display/Keyboard/数码管/UART，§6.6，M5）
+1. **测试台**（CSV + 随机模式 + 层级断言，§9.3）—— 有了波形，这是下一个自然缺口
+2. **Verilog 导出**（§9.2，DRC 与关键路径都已就位）
+3. 仿真 checkpoint 与回溯（§9.7）
+4. 复制粘贴 / 对齐吸附 / 多选参数批量编辑
+5. 虚拟外设补全：键盘输入、七段译码表、UART 终端（§6.6）
+6. 汇编器 / ISA / CPU 教学层（§11）
 
-## 7. 旁支
+## 8. 旁支
 
 - 原版 TC 脚本在 `C:\Users\Orlean-Crispy\Desktop\TC_scripts`（仅参考机制，
   **不得取其代码 / 素材 / 文案**）。

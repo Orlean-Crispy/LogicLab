@@ -22,6 +22,9 @@ use crate::values::Width;
 /// 未连接标记
 pub const NO_NET: u32 = u32::MAX;
 
+/// 未引用任何图纸（即内置元件）
+pub const NO_SUB: u32 = u32::MAX;
+
 /// 默认实例名（ADR-25：层级调试路径与导出命名的基准）
 pub fn auto_name(id: u32) -> String {
     format!("inst_{id}")
@@ -58,6 +61,16 @@ pub struct Instance {
     /// 存储器初始内容（RAM / ROM）
     #[serde(default)]
     pub mem_init: Vec<u32>,
+    /// 被引用的图纸索引（层次化，ADR-28）；NO_SUB 表示内置元件。
+    ///
+    /// 非 NO_SUB 时 `def` 恒为 `DefId::Custom`，引脚布局来自图纸接口，
+    /// 由 `Session::sync_shapes` 写入本实例的 `pins` 缓存。
+    #[serde(default = "no_sub")]
+    pub sub: u32,
+}
+
+fn no_sub() -> u32 {
+    NO_SUB
 }
 
 impl Instance {
@@ -71,9 +84,28 @@ impl Instance {
             display_name: String::new(),
             pins: Vec::new(),
             mem_init: Vec::new(),
+            sub: NO_SUB,
         };
         it.rebuild_pins();
         it
+    }
+
+    /// 子电路实例（层次化，ADR-28）。
+    ///
+    /// 引脚先留空，等 `Session::sync_shapes` 依图纸接口写入——只有 Session
+    /// 同时看得见全部图纸，Instance 自己推导不出该长成什么样。
+    pub fn new_sub(sub: u32, x: i32, y: i32) -> Self {
+        Self {
+            def: DefId::Custom,
+            params: Params::default(),
+            x,
+            y,
+            rot: 0,
+            display_name: String::new(),
+            pins: Vec::new(),
+            mem_init: Vec::new(),
+            sub,
+        }
     }
 
     /// 依据当前参数与旋转重建引脚布局。
@@ -82,6 +114,10 @@ impl Instance {
     /// 只按引脚取 min 会把"输出引脚在右侧"的布局（开关 / 常量 / 时钟）压回原点，
     /// 组件框会塌成一格——这是错的。
     pub fn rebuild_pins(&mut self) {
+        // 子电路外壳的引脚来自图纸接口（Session::sync_shapes 写入），重建会把它们抹掉
+        if self.def == DefId::Custom {
+            return;
+        }
         let mut pins = self.def.pins(&self.params);
         let bw = pins.iter().map(|p| p.dx).max().unwrap_or(0) + 1;
         let bh = pins.iter().map(|p| p.dy).max().unwrap_or(0) + 1;
@@ -123,10 +159,11 @@ impl Instance {
 
     /// 供仿真使用的初始状态（ADR-2：上电全 0，仅存储器可预置）
     pub fn initial_state(&self) -> CompState {
-        if matches!(self.def, DefId::Ram | DefId::Rom) {
-            CompState::with_mem(&self.mem_init, self.params.depth)
-        } else {
-            CompState::default()
+        match self.def {
+            DefId::Ram | DefId::Rom => CompState::with_mem(&self.mem_init, self.params.depth),
+            // 显示屏的帧缓冲也先分配好，热路径才不用分配
+            DefId::Display => CompState::with_mem(&[], self.params.depth),
+            _ => CompState::default(),
         }
     }
 }
@@ -393,6 +430,9 @@ pub fn route_orthogonal(
 /// 电路板（图纸）
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Board {
+    /// 图纸名。作为子电路使用时它就是该自定义元件的类型名（ADR-28）
+    #[serde(default)]
+    pub name: String,
     pub instances: Vec<Instance>,
     pub wires: Vec<Wire>,
     #[serde(default)]
@@ -411,6 +451,15 @@ impl Board {
         let id = self.instances.len() as u32;
         let mut inst = Instance::new(def, params, x, y);
         inst.display_name = auto_name(id);
+        self.instances.push(inst);
+        id
+    }
+
+    /// 添加子电路实例（引脚由 Session 随后补齐）
+    pub fn add_sub_instance(&mut self, sub: u32, name: &str, x: i32, y: i32) -> u32 {
+        let id = self.instances.len() as u32;
+        let mut inst = Instance::new_sub(sub, x, y);
+        inst.display_name = if name.is_empty() { auto_name(id) } else { name.to_string() };
         self.instances.push(inst);
         id
     }
@@ -666,17 +715,17 @@ pub struct Netlist {
     pub net_count: u32,
 }
 
-/// 并查集
-struct UnionFind {
+/// 并查集（网表推导与层次展开共用）
+pub(crate) struct UnionFind {
     parent: Vec<u32>,
 }
 
 impl UnionFind {
-    fn new(n: usize) -> Self {
+    pub(crate) fn new(n: usize) -> Self {
         Self { parent: (0..n as u32).collect() }
     }
 
-    fn find(&mut self, x: u32) -> u32 {
+    pub(crate) fn find(&mut self, x: u32) -> u32 {
         let mut r = x;
         while self.parent[r as usize] != r {
             r = self.parent[r as usize];
@@ -690,7 +739,7 @@ impl UnionFind {
         r
     }
 
-    fn union(&mut self, a: u32, b: u32) {
+    pub(crate) fn union(&mut self, a: u32, b: u32) {
         let (ra, rb) = (self.find(a), self.find(b));
         if ra == rb {
             return;

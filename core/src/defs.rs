@@ -350,6 +350,16 @@ pub enum DefId {
     Counter,
     Ram,
     Rom,
+    // 层次化（ADR-28）：子电路接口与外壳。
+    // Custom 不出现在元件库（ALL）里——它的引脚与行为都由被引用的图纸决定。
+    Custom,
+    /// 子电路内部：把外部输入引进来的接口元件
+    InputPin,
+    /// 子电路内部：把结果送出去的接口元件
+    OutputPin,
+    // 外设
+    SevenSeg,
+    Display,
 }
 
 impl DefId {
@@ -386,6 +396,10 @@ impl DefId {
         DefId::Counter,
         DefId::Ram,
         DefId::Rom,
+        DefId::InputPin,
+        DefId::OutputPin,
+        DefId::SevenSeg,
+        DefId::Display,
     ];
 
     /// 稳定标识串（序列化 / 桥接用）
@@ -422,11 +436,19 @@ impl DefId {
             DefId::Counter => "counter",
             DefId::Ram => "ram",
             DefId::Rom => "rom",
+            DefId::Custom => "custom",
+            DefId::InputPin => "input_pin",
+            DefId::OutputPin => "output_pin",
+            DefId::SevenSeg => "seven_seg",
+            DefId::Display => "display",
         }
     }
 
     /// 由标识串还原
     pub fn from_id(s: &str) -> Option<DefId> {
+        if s == DefId::Custom.id() {
+            return Some(DefId::Custom);
+        }
         DefId::ALL.iter().copied().find(|d| d.id() == s)
     }
 
@@ -464,6 +486,11 @@ impl DefId {
             DefId::Counter => "计数器",
             DefId::Ram => "RAM",
             DefId::Rom => "ROM",
+            DefId::Custom => "子电路",
+            DefId::InputPin => "输入接口",
+            DefId::OutputPin => "输出接口",
+            DefId::SevenSeg => "数码管",
+            DefId::Display => "显示屏",
         }
     }
 
@@ -496,30 +523,55 @@ impl DefId {
             DefId::Dff | DefId::Register | DefId::Counter | DefId::Ram | DefId::Rom => {
                 Category::Memory
             }
+            DefId::Custom
+            | DefId::InputPin
+            | DefId::OutputPin
+            | DefId::SevenSeg
+            | DefId::Display => Category::Io,
         }
     }
 
-    /// 纯观察组件：不参与仿真（万级探针也不拖慢 tick）
+    /// 纯观察组件：只有输入、不驱动任何网络（万级探针也不拖慢 tick）
     pub fn is_sink(self) -> bool {
-        matches!(self, DefId::Led)
+        matches!(self, DefId::Led | DefId::SevenSeg | DefId::OutputPin)
+    }
+
+    /// 引擎**不为其建运行时组件**的种类。
+    ///
+    /// 观察终端与子电路接口本身没有行为：接口引脚在层次展开时已被并成同一个
+    /// 网络（elaborate），外壳则由子电路内容替代。它们照样进网表、照样能连线。
+    pub fn is_passive(self) -> bool {
+        self.is_sink() || matches!(self, DefId::InputPin | DefId::Custom)
     }
 
     /// 无输入源组件
     pub fn is_source(self) -> bool {
-        matches!(self, DefId::Button | DefId::Switch | DefId::Clock | DefId::Constant)
+        matches!(
+            self,
+            DefId::Button | DefId::Switch | DefId::Clock | DefId::Constant | DefId::InputPin
+        )
     }
 
     /// 含内部状态的时序组件
     pub fn is_sequential(self) -> bool {
-        matches!(self, DefId::Dff | DefId::Register | DefId::Counter | DefId::Ram)
+        matches!(
+            self,
+            DefId::Dff | DefId::Register | DefId::Counter | DefId::Ram | DefId::Display
+        )
     }
 
     /// 是否允许多位
     pub fn supports_width(self) -> bool {
         !matches!(
             self,
-            DefId::Clock | DefId::Led | DefId::Button | DefId::Switch | DefId::HalfAdder
-                | DefId::FullAdder | DefId::Dff
+            DefId::Clock
+                | DefId::Led
+                | DefId::Button
+                | DefId::Switch
+                | DefId::HalfAdder
+                | DefId::FullAdder
+                | DefId::Dff
+                | DefId::Custom
         )
     }
 
@@ -563,6 +615,10 @@ impl DefId {
             DefId::Counter => Params::default().width(8).opts(OPT_ENABLE | OPT_RESET),
             DefId::Ram => Params::default().width(8).depth(256),
             DefId::Rom => Params::default().width(8).depth(256),
+            DefId::Custom => Params::default(),
+            DefId::InputPin | DefId::OutputPin | DefId::SevenSeg => Params::default().width(1),
+            // 显示屏：位宽 = 每行像素数，深度 = 行数
+            DefId::Display => Params::default().width(8).depth(8),
         }
     }
 
@@ -590,6 +646,9 @@ impl DefId {
             DefId::Dff => &[P_ENABLE, P_RESET],
             DefId::Register | DefId::Counter => &[P_WIDTH, P_ENABLE, P_RESET],
             DefId::Ram | DefId::Rom => &[P_WIDTH, P_DEPTH],
+            DefId::Custom => &[],
+            DefId::InputPin | DefId::OutputPin | DefId::SevenSeg => &[P_WIDTH],
+            DefId::Display => &[P_WIDTH, P_DEPTH],
         }
     }
 
@@ -738,6 +797,18 @@ impl DefId {
                 v.push(pin("ADDR", 0, 0, aw, ins));
                 v.push(pin("DOUT", 2, 0, w, out));
             }
+            // 子电路接口与外壳：引脚来自图纸内容，由 Session::sync_shapes 写入缓存
+            DefId::InputPin => v.push(pin("Y", 2, 0, w, out)),
+            DefId::OutputPin => v.push(pin("A", 0, 0, w, ins)),
+            DefId::SevenSeg => v.push(pin("D", 0, 0, w, ins)),
+            DefId::Display => {
+                let aw = bits_needed(p.depth.max(2) as u32);
+                v.push(pin("DATA", 0, 0, w, ins));
+                v.push(pin("ADDR", 0, 1, aw, ins));
+                v.push(pin("WE", 0, 2, 1, ins));
+                v.push(pin("CLK", 0, 3, 1, ins));
+            }
+            DefId::Custom => {}
         }
         v
     }
@@ -758,6 +829,7 @@ impl DefId {
                 }
             }
             DefId::Comparator => 3,
+            DefId::Custom | DefId::OutputPin | DefId::SevenSeg | DefId::Display => 0,
             _ => 1,
         }
     }
@@ -800,6 +872,9 @@ impl DefId {
             }
             DefId::Ram => 4,
             DefId::Rom => 1,
+            DefId::Custom | DefId::InputPin => 0,
+            DefId::OutputPin | DefId::SevenSeg => 1,
+            DefId::Display => 4,
         }
     }
 }
@@ -892,8 +967,27 @@ pub fn eval(def: DefId, p: &Params, ins: &[NetValue], st: &mut CompState, outs: 
         | DefId::Alu => eval_arith(def, p, ins, outs),
         DefId::Dff | DefId::Register | DefId::Counter => eval_reg(def, p, ins, st, outs),
         DefId::Ram | DefId::Rom => eval_mem(def, p, ins, st, outs),
-        DefId::Led => {}
+        DefId::Display => eval_display(p, ins, st),
+        // 观察终端与子电路接口没有行为：它们的引脚在展开时已并成同一个网络
+        DefId::Led | DefId::SevenSeg | DefId::OutputPin | DefId::InputPin | DefId::Custom => {}
     }
+}
+
+/// 显示屏：内存映射帧缓冲。每拍在时钟上升沿按写使能写入一行。
+///
+/// 画面状态放在 CompState.mem 里而不是壳里——「编辑即重置」「撤销」「读档」
+/// 于是自动把画面一并复位，壳不需要知道任何像素细节。
+fn eval_display(p: &Params, ins: &[NetValue], st: &mut CompState) {
+    let edge = rising(ins[3], st);
+    if !edge || ins[2].bit(0) != Bit::One {
+        return;
+    }
+    let rows = p.depth.max(2) as usize;
+    if st.mem.len() < rows {
+        st.mem.resize(rows, 0);
+    }
+    let addr = (ins[1].get(32) as usize) % rows;
+    st.mem[addr] = ins[0].get(32) & width_mask(p.width);
 }
 
 /// 时钟：上电输出低，低 `low` 拍后翻高、持续 `high` 拍（§5.2）

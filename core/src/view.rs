@@ -61,6 +61,8 @@ pub struct ComponentView {
     pub w: i32,
     pub h: i32,
     pub rot: u16,
+    /// 被引用的图纸索引（NO_SUB 表示内置元件）；壳据此在元件上画子电路名
+    pub sub: u32,
 }
 
 /// 引脚
@@ -149,21 +151,54 @@ impl CircuitView {
     }
 }
 
-/// 编辑之后重建几何与网络归属（自行推导网表）
+/// 编辑之后重建几何与网络归属（自行推导网表；单图纸）
 pub fn build_view(board: &Board, engine: &Engine) -> CircuitView {
     let nl = board.compile();
-    build_view_with(board, &nl, engine)
+    build_view_with(board, &nl, &NetMap::none(), engine)
+}
+
+/// 网络编号映射：把图纸的局部网络翻译成引擎的全局网络。
+///
+/// 没有子电路时局部编号就是全局编号（map 为 None），此时零开销。
+pub struct NetMap<'a> {
+    pub map: Option<&'a [u32]>,
+}
+
+impl NetMap<'_> {
+    pub const fn none() -> NetMap<'static> {
+        NetMap { map: None }
+    }
+
+    #[inline]
+    pub fn get(&self, local: u32) -> u32 {
+        if local == NO_NET {
+            return NO_NET;
+        }
+        match self.map {
+            Some(m) => m.get(local as usize).copied().unwrap_or(NO_NET),
+            None => local,
+        }
+    }
 }
 
 /// 用**已推导好的**网表重建视图，避免重复推导
-pub fn build_view_with(board: &Board, nl: &Netlist, engine: &Engine) -> CircuitView {
-    let nets = nl.net_count as usize;
+pub fn build_view_with(
+    board: &Board,
+    nl: &Netlist,
+    nl_map: &NetMap,
+    engine: &Engine,
+) -> CircuitView {
+    let nets = engine.net_count();
 
-    // 每个网络的驱动者数量 → 悬空 / 正常 / 冲突
+    // 每个网络的驱动者数量 → 悬空 / 正常 / 冲突（按全局网络统计）
     let mut drivers = vec![0u16; nets];
     for (i, n) in nl.pin_net.iter().enumerate() {
-        if *n != NO_NET && nl.pin_is_out[i] {
-            let slot = &mut drivers[*n as usize];
+        if *n == NO_NET || !nl.pin_is_out[i] {
+            continue;
+        }
+        let g = nl_map.get(*n);
+        if g != NO_NET && (g as usize) < nets {
+            let slot = &mut drivers[g as usize];
             *slot = slot.saturating_add(1);
         }
     }
@@ -193,11 +228,12 @@ pub fn build_view_with(board: &Board, nl: &Netlist, engine: &Engine) -> CircuitV
             w,
             h,
             rot: inst.rot,
+            sub: inst.sub,
         });
 
         let base = nl.pin_start[ii];
         for (slot, pd) in inst.pins.iter().enumerate() {
-            let net = nl.pin_net[(base as usize) + slot];
+            let net = nl_map.get(nl.pin_net[(base as usize) + slot]);
             pins.push(PinView {
                 inst: ii as u32,
                 slot: slot as u16,
@@ -213,7 +249,7 @@ pub fn build_view_with(board: &Board, nl: &Netlist, engine: &Engine) -> CircuitV
 
     let mut wires = Vec::with_capacity(board.wires.len());
     for (wi, w) in board.wires.iter().enumerate() {
-        let net = nl.wire_net[wi];
+        let net = nl_map.get(nl.wire_net[wi]);
         wires.push(WireView {
             index: wi as u32,
             net,
@@ -236,7 +272,7 @@ pub fn build_view_with(board: &Board, nl: &Netlist, engine: &Engine) -> CircuitV
         })
         .collect();
 
-    CircuitView { components, pins, wires, annotations, net_count: nl.net_count }
+    CircuitView { components, pins, wires, annotations, net_count: nets as u32 }
 }
 
 /// 刷新所有引脚 / 导线的当前值（每帧调用，零分配）

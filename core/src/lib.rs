@@ -12,10 +12,12 @@
 //!   save    工程持久化（JSON 以 &str 进出，不碰文件系统）
 //!   view    壳无关的呈现数据（换壳时只重写渲染器）
 //!   drc     设计规则检查（多驱动 / 位宽 / 悬空 / 组合环）
+//!   elaborate 层次展开（子电路 → 扁平网表）
 
 pub mod board;
 pub mod defs;
 pub mod drc;
+pub mod elaborate;
 pub mod engine;
 pub mod examples;
 pub mod save;
@@ -23,8 +25,9 @@ pub mod session;
 pub mod values;
 pub mod view;
 
-pub use board::{Board, Instance, Netlist, Point, Wire, NO_NET};
+pub use board::{Board, Instance, Netlist, Point, Wire, NO_NET, NO_SUB};
 pub use defs::{Category, CompState, DefId, Dir, Params, PinDef};
+pub use elaborate::{Flat, FlatComp, Shape};
 pub use engine::{Engine, NO_COMP};
 pub use drc::{check as drc_check, Issue, IssueKind, Severity};
 pub use examples::{Example, ALL as EXAMPLES};
