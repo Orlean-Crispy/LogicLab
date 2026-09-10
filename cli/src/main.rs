@@ -8,8 +8,8 @@ use std::process::ExitCode;
 use std::time::Instant;
 
 use logiclab_core::{
-    format_value, Board, Category, DefId, Engine, NetValue, Params, Point, Project, NO_NET,
-    SCHEMA_VERSION,
+    format_value, Board, Category, DefId, Engine, NetValue, Params, Point, Project, Session,
+    NO_NET, SCHEMA_VERSION,
 };
 
 const USAGE: &str = "\
@@ -322,28 +322,43 @@ fn shift_register_wave() {
 
 fn cmd_bench() -> Result<(), String> {
     const N: i32 = 10_000;
-    let mut b = Board::new();
-    b.add_instance(DefId::Clock, Params::default().width(1), 0, 0);
-    // 一路时钟总线灌进一万个计数器：每个时钟沿全部翻转，脏标记在此毫无帮助，
-    // 量的就是引擎本身的上限。计数器纵向排开，CLK 正好落在竖直总线上。
-    b.add_wire(vec![Point::new(2, 0), Point::new(4, 0), Point::new(4, N - 1)]);
-    for i in 0..N {
-        b.add_instance(DefId::Counter, Params::default().width(8).opts(0), 4, i);
-    }
+    let mut s = Session::new();
 
+    // 用一次批量编辑构造整块电路：逐个放置会触发 N 次重建
     let t0 = Instant::now();
-    let mut e = Engine::new();
-    e.load_board(&b);
-    let load_ms = t0.elapsed().as_secs_f64() * 1000.0;
+    s.edit_batch(|b| {
+        b.add_instance(DefId::Clock, Params::default().width(1), 0, 0);
+        // 一路时钟总线灌进一万个计数器：每个时钟沿全部翻转，脏标记在此毫无帮助，
+        // 量的就是引擎本身的上限。计数器纵向排开，CLK 正好落在竖直总线上。
+        b.add_wire(vec![Point::new(2, 0), Point::new(4, 0), Point::new(4, N - 1)]);
+        for i in 0..N {
+            b.add_instance(DefId::Counter, Params::default().width(8).opts(0), 4, i);
+        }
+    });
+    let build_ms = t0.elapsed().as_secs_f64() * 1000.0;
 
     let t1 = Instant::now();
-    e.run_for(1000);
+    s.sim_run_for(1000);
     let sim_ms = t1.elapsed().as_secs_f64() * 1000.0;
+    // 必须在做编辑之前读——编辑会把仿真重置，读数就归零了
+    let evals_per_tick = s.engine().last_eval_count();
+
+    // 单次编辑（放置一个元件）= 快照 + 网表推导 + 重建引擎与视图
+    let t2 = Instant::now();
+    s.add_component(DefId::Not, 0, 40);
+    let edit_ms = t2.elapsed().as_secs_f64() * 1000.0;
+
+    // 撤销 = 换回快照 + 重建
+    let t3 = Instant::now();
+    s.undo();
+    let undo_ms = t3.elapsed().as_secs_f64() * 1000.0;
 
     println!("规模基准：{N} 个计数器共用一个时钟（每拍全部活动，脏标记最无力的情况）");
-    println!("  网表推导 + 装载  {load_ms:>8.1} ms");
-    println!("  1000 拍仿真      {sim_ms:>8.1} ms  →  {:.3} ms/拍", sim_ms / 1000.0);
-    println!("  每拍求值 {} 个组件", e.last_eval_count());
+    println!("  批量构造（含一次装载）  {build_ms:>8.1} ms");
+    println!("  1000 拍仿真            {sim_ms:>8.1} ms  →  {:.3} ms/拍", sim_ms / 1000.0);
+    println!("  每拍求值 {evals_per_tick} 个组件");
+    println!("  单次编辑               {edit_ms:>8.1} ms");
+    println!("  撤销一步               {undo_ms:>8.1} ms");
     if sim_ms / 1000.0 >= 5.0 {
         eprintln!("性能未达规格（要求万级元件 < 5 ms/拍）");
     }

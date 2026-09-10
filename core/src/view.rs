@@ -11,7 +11,7 @@
 //! 值还可以走更细的增量通道：Engine 的 changed_nets 只给出本拍变化的网络，
 //! 壳据此只重绘受影响的导线（架构法则 #2：增量同步，绝不整帧全量快照）。
 
-use crate::board::{Board, Point, NO_NET};
+use crate::board::{Board, Netlist, Point, NO_NET};
 use crate::defs::{DefId, Dir};
 use crate::engine::Engine;
 use crate::values::{NetValue, Width};
@@ -51,8 +51,9 @@ pub fn dir_code(d: Dir) -> i64 {
 pub struct ComponentView {
     pub inst: u32,
     pub def: DefId,
-    /// 画在组件上的类型名（AND / NAND / 寄存器…）
-    pub label: String,
+    /// 画在组件上的类型名（AND / NAND / 寄存器…）。
+    /// 用静态字符串：万级元件每次重建视图都分配一次字符串是纯浪费。
+    pub label: &'static str,
     /// 实例名 inst_<n>，层级调试路径与导出命名用（ADR-25）
     pub name: String,
     pub x: i32,
@@ -67,7 +68,6 @@ pub struct ComponentView {
 pub struct PinView {
     pub inst: u32,
     pub slot: u16,
-    pub name: String,
     pub x: i32,
     pub y: i32,
     pub dir: Dir,
@@ -149,9 +149,14 @@ impl CircuitView {
     }
 }
 
-/// 编辑之后重建几何与网络归属
+/// 编辑之后重建几何与网络归属（自行推导网表）
 pub fn build_view(board: &Board, engine: &Engine) -> CircuitView {
     let nl = board.compile();
+    build_view_with(board, &nl, engine)
+}
+
+/// 用**已推导好的**网表重建视图，避免重复推导
+pub fn build_view_with(board: &Board, nl: &Netlist, engine: &Engine) -> CircuitView {
     let nets = nl.net_count as usize;
 
     // 每个网络的驱动者数量 → 悬空 / 正常 / 冲突
@@ -181,7 +186,7 @@ pub fn build_view(board: &Board, engine: &Engine) -> CircuitView {
         components.push(ComponentView {
             inst: ii as u32,
             def: inst.def,
-            label: inst.def.label().to_string(),
+            label: inst.def.label(),
             name: inst.display_name.clone(),
             x: inst.x,
             y: inst.y,
@@ -196,7 +201,6 @@ pub fn build_view(board: &Board, engine: &Engine) -> CircuitView {
             pins.push(PinView {
                 inst: ii as u32,
                 slot: slot as u16,
-                name: pd.name.clone(),
                 x: inst.x + pd.dx,
                 y: inst.y + pd.dy,
                 dir: pd.dir,

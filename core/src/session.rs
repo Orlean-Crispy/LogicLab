@@ -16,7 +16,7 @@ use crate::defs::{DefId, Params};
 use crate::engine::Engine;
 use crate::examples;
 use crate::save::{Project, SaveError};
-use crate::view::{build_view, CircuitView};
+use crate::view::{build_view_with, CircuitView};
 
 /// 编辑会话：工程 + 引擎 + 视图 + 命令历史
 pub struct Session {
@@ -215,6 +215,14 @@ impl Session {
         });
     }
 
+    /// 批量编辑：在同一个闭包里做多次改动，**只重建一次仿真**。
+    ///
+    /// 构造电路（载入示例、粘贴、脚本生成）必须走这里——逐个调用编辑方法会让
+    /// 每次改动都触发一次网表推导与引擎重建，万级电路下是平方级的浪费。
+    pub fn edit_batch<R>(&mut self, f: impl FnOnce(&mut Board) -> R) -> R {
+        self.edit(f)
+    }
+
     /// 用内置示例替换当前图纸
     pub fn load_example(&mut self, id: &str) -> bool {
         let Some(board) = examples::build(id) else {
@@ -273,7 +281,8 @@ impl Session {
         };
         self.board_mut().set_params(id, Params { value, ..p });
         self.engine.set_input(id, value);
-        self.view = build_view(self.board(), &self.engine);
+        // 只刷值，不重建几何：拨开关不改变任何拓扑
+        crate::view::refresh_values(&mut self.view, &self.engine);
     }
 
     pub fn toggle_input(&mut self, id: u32) {
@@ -373,14 +382,18 @@ impl Session {
         self.revision += 1;
     }
 
-    /// 由当前图纸重建引擎与视图（不递增版本号）
+    /// 由当前图纸重建引擎与视图（不递增版本号）。
+    ///
+    /// 网表**只推导一次**并传给引擎与视图。推导是 O((导线+引脚) log n)，
+    /// 万级电路要数毫秒，各做一遍纯属浪费。
     fn rebuild(&mut self) {
         let main = self.project.main_board;
         let board = &self.project.boards[main];
+        let nl = board.compile();
         self.engine = Engine::new();
-        self.engine.load_board(board);
-        self.view = build_view(board, &self.engine);
-        self.pin_start = board.compile().pin_start;
+        self.engine.load_netlist(board, &nl);
+        self.view = build_view_with(board, &nl, &self.engine);
+        self.pin_start = nl.pin_start.clone();
     }
 }
 

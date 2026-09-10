@@ -20,7 +20,7 @@
 //! - 事件驱动 + 脏标记：输入未变的组件直接跳过求值
 //! - 邻接表为 CSR 布局，缓存友好；不做指针追逐，不做 HashMap 查找
 
-use crate::board::{Board, NO_NET};
+use crate::board::{Board, Netlist, NO_NET};
 use crate::defs::{eval, CompState, DefId, Params};
 use crate::values::{NetValue, Width};
 
@@ -113,10 +113,17 @@ impl Engine {
     // 装载
     // -----------------------------------------------------------------------
 
-    /// 由电路板重建运行结构。保留 tick 计数与网络值（编辑时可连续观察），
-    /// 但状态按新图重建，并在下一拍全量重算一次。
+    /// 由电路板重建运行结构（自行推导网表）。
+    ///
+    /// 若调用方已经推导过网表，请改用 load_netlist，避免同一张板子重复推导——
+    /// 万级电路的推导是毫秒级开销。
     pub fn load_board(&mut self, board: &Board) {
         let nl = board.compile();
+        self.load_netlist(board, &nl);
+    }
+
+    /// 由**已推导好的**网表重建运行结构
+    pub fn load_netlist(&mut self, board: &Board, nl: &Netlist) {
 
         self.comps.clear();
         self.states.clear();
@@ -159,7 +166,7 @@ impl Engine {
                 self.net_width[n as usize] = w;
             }
         }
-        self.pin_net = nl.pin_net;
+        self.pin_net = nl.pin_net.clone();
 
         // ---- 接收端 CSR ----
         let nets = nl.net_count as usize;
