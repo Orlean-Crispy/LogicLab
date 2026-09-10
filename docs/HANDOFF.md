@@ -114,3 +114,16 @@ cargo run --release -p logiclab-cli -- bench    # 万级规模基准
 - **本项目的 MIT 与上面这条红线是绑在一起的**：MIT 只对「自己写的代码」成立。
   一旦真把 GPL 代码或素材抄进来，MIT 就站不住了——要么把那段整个移除并重新实现，
   要么把项目整体改成 GPLv3。所以「只借鉴机制、绝不复制实现」不是洁癖，是许可证前提。
+
+## 9. 发布约定
+
+- **发布说明一律写成中英双语**：上半中文、下半英文，中间一条 `---` 分隔；
+  英文那半另起 `## <版本> (English)` 标题，各小节标题也各自本地化。
+  仓库是公开的，外面的人先看到的是 Release 页，只写中文等于把一半读者挡在门外。
+- 版本后缀用 **Checkpoint**（见 §1）。tag 形如 `v0.2.0-checkpoint2`，
+  资产名 `LogicLab-<版本>-<架构>.exe`，同时留档到 `releases/{X86,ARM64}/`。
+- Release 一律勾 **pre-release**：项目长期处于测试期，不给别人「稳定版」的错觉。
+- **资产必须串行上传**：并行传两个大文件会掐断其中一个
+  （实测踩过，arm64 传到一半 WebException）。每个文件自带 3 次重试。
+- README 的中英两版要保持章节对称（已验证：Quick Start / Controls / Architecture /
+  Hierarchy / Simulation semantics / Performance / Roadmap / License / AI 声明 一一对应）。
