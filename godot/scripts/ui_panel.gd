@@ -14,6 +14,8 @@ signal delete_pressed()
 signal rotate_pressed()
 signal param_changed(key: String, value: int)
 signal tick_rate_changed(rate: float)
+signal locate_requested(inst: int)
+signal display_name_changed(id: int, name: String)
 signal save_pressed()
 signal load_pressed()
 signal clear_pressed()
@@ -33,6 +35,7 @@ var _drc_label: Label
 var _props: VBoxContainer
 var _run_btn: Button
 var _example_picker: OptionButton
+var _issues: ItemList
 var _selected := -1
 
 
@@ -127,11 +130,18 @@ func _build_library_panel(root: Control) -> void:
 	new_btn.pressed.connect(func(): clear_pressed.emit())
 	row.add_child(new_btn)
 
+	box.add_child(_head_label("设计规则检查（双击条目定位）"))
 	var check_btn := Button.new()
-	check_btn.text = "设计规则检查 (DRC)"
+	check_btn.text = "运行检查"
 	check_btn.add_theme_font_size_override("font_size", 12)
 	check_btn.pressed.connect(_on_check_pressed)
 	box.add_child(check_btn)
+
+	_issues = ItemList.new()
+	_issues.custom_minimum_size = Vector2(0, 120)
+	_issues.add_theme_font_size_override("font_size", 11)
+	_issues.item_activated.connect(_on_issue_activated)
+	box.add_child(_issues)
 
 
 func _build_bottom_bar(root: Control) -> void:
@@ -305,6 +315,14 @@ func on_selection_changed(id: int) -> void:
 	name_label.add_theme_color_override("font_color", Color(0.92, 0.94, 0.97))
 	_props.add_child(name_label)
 
+	# 实例名（层级调试路径与导出的基准，ADR-25）
+	_props.add_child(_head_label("实例名"))
+	var name_edit := LineEdit.new()
+	name_edit.text = String(core.instance_name(id))
+	name_edit.add_theme_font_size_override("font_size", 11)
+	name_edit.text_submitted.connect(func(t: String): display_name_changed.emit(id, t))
+	_props.add_child(name_edit)
+
 	var keys = core.param_keys(def_idx)
 	var labels = core.param_labels(def_idx)
 	var kinds = core.param_kinds(def_idx)
@@ -384,11 +402,31 @@ func _bool_row(key: String, label: String, on: bool) -> CheckBox:
 # 设计规则检查
 # ---------------------------------------------------------------------------
 
+func _on_issue_activated(index: int) -> void:
+	var inst := int(_issues.get_item_metadata(index))
+	locate_requested.emit(inst)
+
+
 func _on_check_pressed() -> void:
 	var summary = core.drc_summary()
 	var details = core.drc_details()
 	var errors := int(summary[0])
 	var warnings := int(summary[1])
+
+	# 问题列表：每条带实例号，双击即可定位（v4 §8）
+	_issues.clear()
+	var raw = core.drc_issues()
+	var k := 0
+	while k + 3 < raw.size():
+		var severity := int(raw[k + 1])
+		var inst := int(raw[k + 3])
+		var mark := "✗" if severity == 1 else "!"
+		_issues.add_item("%s %s" % [mark, String(details[k / 4])])
+		_issues.set_item_metadata(_issues.item_count - 1, inst)
+		k += 4
+	if _issues.item_count == 0:
+		_issues.add_item("（没有发现问题）")
+		_issues.set_item_selectable(0, false)
 
 	if _drc_label != null:
 		_drc_label.text = "DRC：错误 %d · 警告 %d" % [errors, warnings]

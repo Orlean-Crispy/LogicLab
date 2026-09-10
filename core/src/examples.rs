@@ -37,7 +37,7 @@ pub const ALL: &[Example] = &[
     Example {
         id: "counter4",
         name: "4 位计数器",
-        note: "计数器 + Splitter 拆位 + 四个探针",
+        note: "8 位计数器，经 Splitter 拆成高/低两个 4 位探针",
         build: counter4,
     },
     Example {
@@ -147,15 +147,21 @@ fn shift_reg() -> Board {
 fn counter4() -> Board {
     let mut b = Board::new();
     let clk = b.add_instance(DefId::Clock, sw1(), 0, 0);
-    let cnt = b.add_instance(DefId::Counter, Params::default().width(4).opts(0), 8, 0);
-    let sp = b.add_instance(DefId::Splitter, Params::default().width(4), 16, 0);
+    let cnt = b.add_instance(DefId::Counter, Params::default().width(8).opts(0), 8, 0);
+    // 8 位拆成低 4 位 + 高 4 位（v4 §6.3 的两段语义）
+    let sp = b.add_instance(
+        DefId::Splitter,
+        Params { value: 4, ..DefId::Splitter.default_params().width(8) },
+        16,
+        0,
+    );
+    let lo = b.add_instance(DefId::Led, Params::default().width(4), 24, 0);
+    let hi = b.add_instance(DefId::Led, Params::default().width(4), 24, 4);
 
     wire(&mut b, (clk, 0), (cnt, 0));
     wire(&mut b, (cnt, 1), (sp, 0));
-    for i in 0..4 {
-        let led = b.add_instance(DefId::Led, led1(), 24, i as i32 * 4);
-        wire(&mut b, (sp, 1 + i as usize), (led, 0));
-    }
+    wire(&mut b, (sp, 1), (lo, 0));
+    wire(&mut b, (sp, 2), (hi, 0));
     b
 }
 

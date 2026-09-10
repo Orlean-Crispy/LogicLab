@@ -97,6 +97,13 @@ pub const OPT_CARRY: u32 = 1 << 3;
 /// 移位器方向：置位 = 左移
 pub const OPT_SHIFT_LEFT: u32 = 1 << 4;
 
+/// Splitter / Merger 的低段位宽（存在 Params::value 里），夹到 1..width-1
+#[inline]
+pub fn low_bits(p: &Params) -> Width {
+    let w = p.width.max(2);
+    (p.value.max(1).min(w as u32 - 1)) as Width
+}
+
 /// 实例参数（Copy，热路径友好）
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct Params {
@@ -149,6 +156,7 @@ impl Params {
             "width" => self.width as i64,
             "inputs" => self.inputs as i64,
             "value" => self.value as i64,
+            "low_bits" => low_bits(self) as i64,
             "opts" => self.opts as i64,
             "high" => self.high as i64,
             "low" => self.low as i64,
@@ -186,6 +194,11 @@ impl Params {
             }
             "opts" => {
                 self.opts = value as u32;
+                true
+            }
+            "low_bits" => {
+                let w = self.width.max(2) as i64;
+                self.value = value.clamp(1, w - 1) as u32;
                 true
             }
             "high" => {
@@ -265,6 +278,8 @@ const P_LOW: ParamDesc =
     ParamDesc { key: "low", label: "低电平拍数", kind: ParamKind::Int { min: 1, max: 255 } };
 const P_DEPTH: ParamDesc =
     ParamDesc { key: "depth", label: "深度", kind: ParamKind::Int { min: 2, max: 4096 } };
+const P_LOW_BITS: ParamDesc =
+    ParamDesc { key: "low_bits", label: "低段位宽", kind: ParamKind::Int { min: 1, max: 31 } };
 const P_SIGNED: ParamDesc =
     ParamDesc { key: "signed", label: "有符号比较", kind: ParamKind::Bool { bit: OPT_SIGNED } };
 const P_ENABLE: ParamDesc =
@@ -549,7 +564,7 @@ impl DefId {
             DefId::And | DefId::Or | DefId::Nand | DefId::Nor | DefId::Xor | DefId::Xnor => {
                 &[P_WIDTH, P_INPUTS]
             }
-            DefId::Splitter | DefId::Merger => &[P_WIDTH],
+            DefId::Splitter | DefId::Merger => &[P_WIDTH, P_LOW_BITS],
             DefId::Mux => &[P_WIDTH, P_INPUTS],
             DefId::Decoder => &[P_WIDTH],
             DefId::PriorityEncoder => &[P_INPUTS],
@@ -593,17 +608,18 @@ impl DefId {
             DefId::Led => {
                 v.push(pin("D", 0, 0, w, ins));
             }
+            // 任意两段位宽组合（v4 §6.3）：LO + HI = 总位宽，可级联拆更多段
             DefId::Splitter => {
+                let low = low_bits(p);
                 v.push(pin("D", 0, 0, w, ins));
-                for i in 0..w as i32 {
-                    v.push(pin(&format!("Y{i}"), 2, i, 1, out));
-                }
+                v.push(pin("LO", 2, 0, low, out));
+                v.push(pin("HI", 2, 2, w - low, out));
             }
             DefId::Merger => {
-                for i in 0..w as i32 {
-                    v.push(pin(&format!("A{i}"), 0, i, 1, ins));
-                }
-                v.push(pin("Y", 2, 0, w, out));
+                let low = low_bits(p);
+                v.push(pin("LO", 0, 0, low, ins));
+                v.push(pin("HI", 0, 2, w - low, ins));
+                v.push(pin("Y", 2, 1, w, out));
             }
             DefId::Mux => {
                 let sel_w = bits_needed(p.inputs.max(2) as u32);
@@ -717,7 +733,7 @@ impl DefId {
     pub fn out_count(self, p: &Params) -> usize {
         match self {
             DefId::Led => 0,
-            DefId::Splitter => p.width as usize,
+            DefId::Splitter => 2,
             DefId::Decoder => 1usize << bits_needed(p.width.max(2) as u32),
             DefId::PriorityEncoder => 2,
             DefId::HalfAdder | DefId::FullAdder => 2,
@@ -746,7 +762,7 @@ impl DefId {
             | DefId::Xor
             | DefId::Xnor => p.inputs.max(2) as usize,
             DefId::Splitter => 1,
-            DefId::Merger => p.width as usize,
+            DefId::Merger => 2,
             DefId::Mux => p.inputs.max(2) as usize + 1,
             DefId::Decoder => 1,
             DefId::PriorityEncoder => p.inputs.max(2) as usize,
@@ -916,26 +932,22 @@ fn eval_routing(def: DefId, p: &Params, ins: &[NetValue], outs: &mut [NetValue])
     let w = p.width;
     match def {
         DefId::Splitter => {
+            let low = low_bits(p);
             let a = ins[0];
-            for (i, o) in outs.iter_mut().enumerate() {
-                *o = match a.bit(i as u8) {
-                    Bit::X => NetValue::all_unknown(1),
-                    Bit::One => NetValue::ONE,
-                    Bit::Zero => NetValue::ZERO,
-                };
-            }
+            outs[0] = NetValue::new(a.val & width_mask(low), a.unk & width_mask(low));
+            outs[1] = NetValue::new(
+                (a.val >> low) & width_mask(w - low),
+                (a.unk >> low) & width_mask(w - low),
+            );
         }
         DefId::Merger => {
-            let mut val = 0u32;
-            let mut unk = 0u32;
-            for (i, v) in ins.iter().enumerate() {
-                match v.bit(0) {
-                    Bit::One => val |= 1 << (i & 31),
-                    Bit::X => unk |= 1 << (i & 31),
-                    Bit::Zero => {}
-                }
-            }
-            outs[0] = NetValue::new(val, unk);
+            let low = low_bits(p);
+            let lo = ins[0];
+            let hi = ins[1];
+            outs[0] = NetValue::new(
+                (lo.val & width_mask(low)) | ((hi.val & width_mask(w - low)) << low),
+                (lo.unk & width_mask(low)) | ((hi.unk & width_mask(w - low)) << low),
+            );
         }
         DefId::Mux => {
             let k = p.inputs.max(2) as usize;
@@ -1222,21 +1234,37 @@ mod tests {
         assert_eq!(one(DefId::Xor, &p, &[a, b]).get(8), 0xCC);
     }
 
+    /// v4 §6.3：Splitter / Merger 是**任意两段位宽**组合，不是拆成一个个 1 位
     #[test]
     fn splitter_merger_are_inverse() {
-        let ps = DefId::Splitter.default_params().width(4);
-        let pm = DefId::Merger.default_params().width(4);
-        let v = NetValue::from_u32(0b1011, 4);
+        // 8 位 → 低 4 位 + 高 4 位
+        let ps = Params { value: 4, ..DefId::Splitter.default_params().width(8) };
+        let pm = Params { value: 4, ..DefId::Merger.default_params().width(8) };
+        let v = NetValue::from_u32(0xB7, 8);
         let mut st = CompState::default();
-        let mut bits = vec![NetValue::ZERO; 4];
-        eval(DefId::Splitter, &ps, &[v], &mut st, &mut bits);
-        assert_eq!(bits[0].get(1), 1);
-        assert_eq!(bits[1].get(1), 1);
-        assert_eq!(bits[2].get(1), 0);
-        assert_eq!(bits[3].get(1), 1);
+        let mut parts = vec![NetValue::ZERO; 2];
+        eval(DefId::Splitter, &ps, &[v], &mut st, &mut parts);
+        assert_eq!(parts[0].get(4), 0x7, "LO 段是低 4 位");
+        assert_eq!(parts[1].get(4), 0xB, "HI 段是高 4 位");
         let mut merged = vec![NetValue::ZERO; 1];
-        eval(DefId::Merger, &pm, &bits, &mut st, &mut merged);
-        assert_eq!(merged[0].get(4), 0b1011);
+        eval(DefId::Merger, &pm, &parts, &mut st, &mut merged);
+        assert_eq!(merged[0].get(8), 0xB7, "拆开再合并应还原");
+    }
+
+    /// 非对半的两段也要正确（例如 8 → 3 + 5）
+    #[test]
+    fn splitter_supports_uneven_segments() {
+        let ps = Params { value: 3, ..DefId::Splitter.default_params().width(8) };
+        let pm = Params { value: 3, ..DefId::Merger.default_params().width(8) };
+        let v = NetValue::from_u32(0b1011_0101, 8);
+        let mut st = CompState::default();
+        let mut parts = vec![NetValue::ZERO; 2];
+        eval(DefId::Splitter, &ps, &[v], &mut st, &mut parts);
+        assert_eq!(parts[0].get(3), 0b101);
+        assert_eq!(parts[1].get(5), 0b10110);
+        let mut merged = vec![NetValue::ZERO; 1];
+        eval(DefId::Merger, &pm, &parts, &mut st, &mut merged);
+        assert_eq!(merged[0].get(8), 0b1011_0101);
     }
 
     #[test]

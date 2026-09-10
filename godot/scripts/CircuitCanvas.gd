@@ -36,6 +36,8 @@ var w_points := PackedInt64Array()
 var net_vals := PackedInt64Array()
 var lib_labels := PackedStringArray()
 var lib_cats := PackedInt64Array()
+var ann_pos := PackedInt64Array()
+var ann_texts := PackedStringArray()
 
 # 交互
 var pending_def := ""
@@ -92,6 +94,8 @@ func refresh() -> void:
 	w_ranges = core.wire_ranges()
 	w_points = core.wire_points()
 	net_vals = core.net_values()
+	ann_pos = core.annotations()
+	ann_texts = core.annotation_texts()
 	if lib_labels.is_empty():
 		lib_labels = core.library_labels()
 		lib_cats = core.library_category_codes()
@@ -183,6 +187,7 @@ func _draw() -> void:
 	_draw_wires()
 	_draw_components()
 	_draw_pins()
+	_draw_annotations()
 	_draw_wiring_preview()
 
 
@@ -310,6 +315,27 @@ func _draw_pins() -> void:
 		i += 7
 
 
+func _draw_annotations() -> void:
+	var i := 0
+	while i + 2 < ann_pos.size():
+		var idx := i / 3
+		var text := String(ann_texts[idx]) if idx < ann_texts.size() else ""
+		var sp := world_to_screen(Vector2(float(ann_pos[i]), float(ann_pos[i + 1])))
+		var size_px := Vector2(float(text.length()) * 6.5 + 10.0, 15.0)
+		draw_rect(Rect2(sp + Vector2(0, -12), size_px), Color(0.07, 0.08, 0.10, 0.80), true)
+		draw_rect(Rect2(sp + Vector2(0, -12), size_px), Color(0.35, 0.34, 0.24), false, 1.0)
+		draw_string(
+			_font,
+			sp + Vector2(5, -1),
+			text,
+			HORIZONTAL_ALIGNMENT_LEFT,
+			-1,
+			10,
+			Color(0.88, 0.83, 0.55)
+		)
+		i += 3
+
+
 func _draw_wiring_preview() -> void:
 	if wiring_from.x < 0:
 		return
@@ -405,7 +431,13 @@ func _on_left_press(cell: Vector2i) -> void:
 		queue_redraw()
 		return
 
-	# 4) 空白 → 取消选择
+	# 4) 注释上 → 选中并编辑
+	var aid: int = core.pick_annotation(cell.x, cell.y)
+	if aid >= 0:
+		_edit_annotation(aid)
+		return
+
+	# 5) 空白 → 取消选择
 	selected = -1
 	selection_changed.emit(-1)
 	queue_redraw()
@@ -483,6 +515,58 @@ func _on_key(e: InputEventKey) -> void:
 			do_tick()
 		KEY_C:
 			center_on_content()
+		KEY_T:
+			_insert_annotation_at_hover()
+
+
+## 在鼠标所在格插入一条注释，并立刻让用户输入内容
+func _insert_annotation_at_hover() -> void:
+	if core == null:
+		return
+	var cell := screen_to_cell(get_local_mouse_position())
+	var id: int = core.add_annotation(cell.x, cell.y, "注释")
+	refresh()
+	status_changed.emit("已插入注释，按 Enter 编辑")
+	_edit_annotation(id)
+
+
+func _edit_annotation(id: int) -> void:
+	if id < 0:
+		return
+	var dlg := AcceptDialog.new()
+	dlg.title = "注释内容"
+	dlg.ok_button_text = "确定"
+	var edit := LineEdit.new()
+	edit.text = String(core.annotation_texts()[id]) if id < core.annotation_texts().size() else ""
+	edit.custom_minimum_size = Vector2(360, 0)
+	dlg.add_child(edit)
+	add_child(dlg)
+	dlg.confirmed.connect(
+		func():
+			core.set_annotation_text(id, edit.text)
+			refresh()
+			status_changed.emit("注释已更新")
+	)
+	dlg.close_requested.connect(dlg.queue_free)
+	dlg.canceled.connect(dlg.queue_free)
+	dlg.popup_centered(Vector2i(420, 110))
+	edit.select_all()
+	edit.grab_focus()
+
+
+## 从 DRC 列表定位到某个组件（v4 §8：双击条目定位并高亮）
+func locate_component(id: int) -> void:
+	if id < 0 or core == null:
+		return
+	selected = id
+	selection_changed.emit(id)
+	var info = core.component_info(id)
+	if info.size() >= 8:
+		view_offset = Vector2(float(info[5]) + 1.0, float(info[6]) + 1.0)
+		if zoom < 1.5:
+			zoom = 1.5
+	status_changed.emit("已定位到 %s" % core.instance_name(id))
+	queue_redraw()
 
 
 func _zoom_at(pos: Vector2, factor: float) -> void:
@@ -558,6 +642,12 @@ func rotate_selected() -> void:
 		core.rotate_component(selected)
 		status_changed.emit("已旋转 90°")
 		queue_redraw()
+
+
+func set_display_name_of(id: int, name: String) -> void:
+	if id >= 0 and name != "":
+		core.set_display_name(id, name)
+		status_changed.emit("实例名已改为 %s" % name)
 
 
 func set_selected_param(key: String, value: int) -> void:

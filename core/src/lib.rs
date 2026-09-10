@@ -19,6 +19,7 @@ pub mod drc;
 pub mod engine;
 pub mod examples;
 pub mod save;
+pub mod session;
 pub mod values;
 pub mod view;
 
@@ -28,5 +29,6 @@ pub use engine::{Engine, NO_COMP};
 pub use drc::{check as drc_check, Issue, IssueKind, Severity};
 pub use examples::{Example, ALL as EXAMPLES};
 pub use save::{Project, SaveError, SCHEMA_VERSION};
+pub use session::Session;
 pub use values::{format_value, Bit, NetValue, Width};
 pub use view::{build_view, refresh_values, CircuitView, NetStatus};

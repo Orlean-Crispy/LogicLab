@@ -22,6 +22,11 @@ use crate::values::Width;
 /// 未连接标记
 pub const NO_NET: u32 = u32::MAX;
 
+/// 默认实例名（ADR-25：层级调试路径与导出命名的基准）
+pub fn auto_name(id: u32) -> String {
+    format!("inst_{id}")
+}
+
 /// 整数格坐标
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Hash, Serialize, Deserialize)]
 pub struct Point {
@@ -44,9 +49,9 @@ pub struct Instance {
     pub y: i32,
     /// 0 / 90 / 180 / 270
     pub rot: u16,
-    /// 用户可改的显示名（空 = 用 def.label()）
+    /// 实例名，默认自动生成 inst_<n>；层级调试路径与 Verilog 导出命名都用它（ADR-25）
     #[serde(default)]
-    pub name: String,
+    pub display_name: String,
     /// 引脚布局缓存：不入档，读档后由 def + params + rot 重建（Board::fixup）
     #[serde(skip)]
     pub pins: Vec<PinDef>,
@@ -63,7 +68,7 @@ impl Instance {
             x,
             y,
             rot: 0,
-            name: String::new(),
+            display_name: String::new(),
             pins: Vec::new(),
             mem_init: Vec::new(),
         };
@@ -124,6 +129,17 @@ impl Instance {
             CompState::default()
         }
     }
+}
+
+/// 文本注释：无电气行为，随 Board 保存（v4 §6.7，教学软件刚需）
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct Annotation {
+    pub x: i32,
+    pub y: i32,
+    pub text: String,
+    /// 0xRRGGBB；0 表示用默认色
+    #[serde(default)]
+    pub color: u32,
 }
 
 /// 导线：正交折线（≥2 个点，只保留端点与拐点）
@@ -371,6 +387,8 @@ pub fn route_orthogonal(
 pub struct Board {
     pub instances: Vec<Instance>,
     pub wires: Vec<Wire>,
+    #[serde(default)]
+    pub annotations: Vec<Annotation>,
 }
 
 impl Board {
@@ -380,8 +398,47 @@ impl Board {
 
     /// 添加元件，返回其索引（索引即稳定 id）
     pub fn add_instance(&mut self, def: DefId, params: Params, x: i32, y: i32) -> u32 {
-        self.instances.push(Instance::new(def, params, x, y));
-        (self.instances.len() - 1) as u32
+        let id = self.instances.len() as u32;
+        let mut inst = Instance::new(def, params, x, y);
+        inst.display_name = auto_name(id);
+        self.instances.push(inst);
+        id
+    }
+
+    /// 按 id 取实例名（层级路径用，ADR-25）
+    pub fn instance_name(&self, id: u32) -> Option<&str> {
+        self.instances.get(id as usize).map(|i| i.display_name.as_str())
+    }
+
+    pub fn add_annotation(&mut self, x: i32, y: i32, text: &str) -> u32 {
+        self.annotations.push(Annotation {
+            x,
+            y,
+            text: text.to_string(),
+            color: 0,
+        });
+        (self.annotations.len() - 1) as u32
+    }
+
+    pub fn remove_annotation(&mut self, id: u32) -> bool {
+        if (id as usize) < self.annotations.len() {
+            self.annotations.remove(id as usize);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// 命中测试：返回落在该格点上的注释
+    pub fn pick_annotation(&self, x: i32, y: i32) -> Option<u32> {
+        for (i, a) in self.annotations.iter().enumerate().rev() {
+            // 注释按字符数估算宽度，高度固定 1 格
+            let w = (a.text.chars().count() as i32).max(1);
+            if x >= a.x && x < a.x + w && y >= a.y && y < a.y + 1 {
+                return Some(i as u32);
+            }
+        }
+        None
     }
 
     /// 删除元件；导线需由调用方负责清理 / 重新推导
@@ -534,10 +591,14 @@ impl Board {
         self.instances.iter().map(|i| i.pins.len()).sum()
     }
 
-    /// 读档后的修复：引脚布局是缓存，必须按 def + params + rot 重建
+    /// 读档后的修复：引脚布局是缓存（按 def + params + rot 重建），
+    /// 实例名缺失时补上 inst_<n>（老工程兼容，ADR-25）
     pub fn fixup(&mut self) {
-        for inst in &mut self.instances {
+        for (i, inst) in self.instances.iter_mut().enumerate() {
             inst.rebuild_pins();
+            if inst.display_name.is_empty() {
+                inst.display_name = auto_name(i as u32);
+            }
         }
     }
 

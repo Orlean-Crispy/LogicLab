@@ -51,7 +51,10 @@ pub fn dir_code(d: Dir) -> i64 {
 pub struct ComponentView {
     pub inst: u32,
     pub def: DefId,
+    /// 画在组件上的类型名（AND / NAND / 寄存器…）
     pub label: String,
+    /// 实例名 inst_<n>，层级调试路径与导出命名用（ADR-25）
+    pub name: String,
     pub x: i32,
     pub y: i32,
     pub w: i32,
@@ -84,12 +87,22 @@ pub struct WireView {
     pub value: NetValue,
 }
 
+/// 文本注释（v4 §6.7）
+#[derive(Clone, Debug)]
+pub struct AnnotationView {
+    pub index: u32,
+    pub x: i32,
+    pub y: i32,
+    pub text: String,
+}
+
 /// 电路的整体呈现数据
 #[derive(Clone, Debug, Default)]
 pub struct CircuitView {
     pub components: Vec<ComponentView>,
     pub pins: Vec<PinView>,
     pub wires: Vec<WireView>,
+    pub annotations: Vec<AnnotationView>,
     /// 网络总数（壳据此分配按 net 索引的值表）
     pub net_count: u32,
 }
@@ -119,6 +132,14 @@ impl CircuitView {
                 max.y = max.y.max(p.y);
                 any = true;
             }
+        }
+        for a in &self.annotations {
+            let w = (a.text.chars().count() as i32).max(1);
+            min.x = min.x.min(a.x);
+            min.y = min.y.min(a.y);
+            max.x = max.x.max(a.x + w);
+            max.y = max.y.max(a.y + 1);
+            any = true;
         }
         if any {
             Some((min, max))
@@ -157,15 +178,11 @@ pub fn build_view(board: &Board, engine: &Engine) -> CircuitView {
 
     for (ii, inst) in board.instances.iter().enumerate() {
         let (w, h) = inst.size();
-        let label = if inst.name.is_empty() {
-            inst.def.label().to_string()
-        } else {
-            inst.name.clone()
-        };
         components.push(ComponentView {
             inst: ii as u32,
             def: inst.def,
-            label,
+            label: inst.def.label().to_string(),
+            name: inst.display_name.clone(),
             x: inst.x,
             y: inst.y,
             w,
@@ -203,7 +220,19 @@ pub fn build_view(board: &Board, engine: &Engine) -> CircuitView {
         });
     }
 
-    CircuitView { components, pins, wires, net_count: nl.net_count }
+    let annotations = board
+        .annotations
+        .iter()
+        .enumerate()
+        .map(|(i, a)| AnnotationView {
+            index: i as u32,
+            x: a.x,
+            y: a.y,
+            text: a.text.clone(),
+        })
+        .collect();
+
+    CircuitView { components, pins, wires, annotations, net_count: nl.net_count }
 }
 
 /// 刷新所有引脚 / 导线的当前值（每帧调用，零分配）
