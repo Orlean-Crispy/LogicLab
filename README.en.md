@@ -154,6 +154,17 @@ Work follows the milestones of [spec v4](docs/logic-sandbox-spec-v4.md); item-by
 The end goal is to tick all seven acceptance criteria of spec §15. The two sharpest are: **a self-built CPU + UART
 running a real program with conditional jumps**, and **any exported Verilog being accepted by both iverilog and Yosys**.
 
+### Platform support
+
+| Platform | Status | Notes |
+|---|---|---|
+| Windows x64 / ARM64 | ✅ Supported | Single-file, no installation — see [Releases](../../releases) |
+| Linux x64 / ARM64 | 🔜 Planned | The core and CLI are already cross-platform; the real work is the single-file packaging and the Godot export path. Scheduling depends on actual demand |
+| macOS | ⏸ Not planned | No sustainable verification environment. A platform whose usability we cannot confirm ourselves gets no promise |
+
+Room has been left in the architecture: `core` and `cli` are pure Rust with no engine types, so a new platform needs
+no changes to the kernel — only the packaging and export flow. The table above is therefore a scheduling matter, not a capability limit.
+
 ## On AI-assisted development
 
 This project makes **heavy use of AI-assisted development**, and the division of labour is stated plainly:
