@@ -1,5 +1,7 @@
 class_name HierPanel
 extends CanvasLayer
+
+const I18n = preload("res://scripts/i18n.gd")
 ## 层次导航条：面包屑 + 图纸库 + 新建/改名/删除 + 封装 + 波形开关。
 ##
 ## 图纸与接口的知识全在 core 里（board_names / breadcrumb / board_refs），
@@ -9,6 +11,7 @@ signal level_requested(depth: int)
 signal open_requested(idx: int)
 signal extract_requested(cname: String)
 signal wave_toggled(on: bool)
+signal language_toggled()
 
 const PANEL_BG := Color(0.10, 0.11, 0.14, 0.94)
 const HEAD := Color(0.58, 0.65, 0.75)
@@ -69,6 +72,14 @@ func _ready() -> void:
 	_wave_btn.toggle_mode = true
 	_wave_btn.toggled.connect(func(on): wave_toggled.emit(on))
 	row.add_child(_wave_btn)
+
+	# 按钮上写的是「点了会切到哪种语言」，比写当前语言少一层理解成本
+	var lang_btn := Button.new()
+	lang_btn.text = "中文" if I18n.is_en() else "English"
+	lang_btn.tooltip_text = "切换界面语言 / Switch language"
+	lang_btn.add_theme_font_size_override("font_size", 12)
+	lang_btn.pressed.connect(func() -> void: language_toggled.emit())
+	row.add_child(lang_btn)
 
 	_info = Label.new()
 	_info.add_theme_font_size_override("font_size", 11)

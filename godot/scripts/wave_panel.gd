@@ -1,5 +1,7 @@
 class_name WavePanel
 extends Control
+
+const I18n = preload("res://scripts/i18n.gd")
 ## 波形查看器（§9.1）：读 core 的逐拍采样缓冲，画成方波。
 ##
 ## 采样是 core 在 sim_tick 里累积的，壳不参与记录——将来换壳波形数据不用重做，
@@ -34,13 +36,13 @@ func _draw() -> void:
 	var names: PackedStringArray = core.wave_names()
 	var traces: PackedInt64Array = core.wave_traces()
 	if names.is_empty():
-		draw_string(_font, Vector2(10.0, 20.0), "波形：鼠标停在导线上按 W 观察该网络", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0.55, 0.6, 0.68))
+		draw_string(_font, Vector2(10.0, 20.0), I18n.t("波形：鼠标停在导线上按 W 观察该网络"), HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0.55, 0.6, 0.68))
 		return
 	var total := int(traces[2]) if traces.size() >= 3 else 0
 	var span := mini(WINDOW, total)
 	var plot_w := size.x - NAME_W - 14.0
 	if span <= 0 or plot_w <= 20.0:
-		draw_string(_font, Vector2(10.0, 20.0), "波形：等待采样（运行几拍）", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0.55, 0.6, 0.68))
+		draw_string(_font, Vector2(10.0, 20.0), I18n.t("波形：等待采样（运行几拍）"), HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0.55, 0.6, 0.68))
 		return
 	var step := plot_w / float(span)
 	# 竖直刻度：每 10 拍一条淡线

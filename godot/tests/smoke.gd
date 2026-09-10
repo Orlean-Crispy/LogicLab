@@ -31,8 +31,8 @@ func _initialize() -> void:
 	print("[1] 元件库")
 	var ids = core.library_ids()
 	_check(ids.size() >= 30, "内置组件 >= 30 种（实际 %d）" % ids.size())
-	_check(core.library_labels().size() == ids.size(), "标签数与 id 数一致")
-	_check(core.library_categories().size() == ids.size(), "分类数与 id 数一致")
+	_check(core.library_labels(0).size() == ids.size(), "标签数与 id 数一致")
+	_check(core.library_categories(0).size() == ids.size(), "分类数与 id 数一致")
 
 	print("[2] 放置与命中")
 	var sw: int = core.add_component("switch", 0, 0)
@@ -366,6 +366,15 @@ func _initialize() -> void:
 	_check(r1.wire_ranges().size() == 0, "删元件后接线一并消失")
 	r1.undo()
 	_check(r1.wire_ranges().size() == 5, "撤销把线还回来")
+
+	print("[29] 双语标签（core 提供，壳不另维护翻译表）")
+	var zh0 := String(core.library_labels(0)[0])
+	var en0 := String(core.library_labels(1)[0])
+	_check(zh0 != en0, "中英标签不同（%s / %s）" % [zh0, en0])
+	_check(en0 == "Button", "英文组件名正确")
+	_check(String(core.library_categories(1)[0]) == "I/O", "英文分类名正确")
+	_check(String(core.drc_kind_labels(1)[0]) == "Multiple drivers", "英文 DRC 类别正确")
+	_check(core.library_labels(0).size() == core.library_labels(1).size(), "两种语言条目数一致")
 
 	print("=== %s ===" % ("全部通过" if _fails == 0 else "%d 项失败" % _fails))
 	quit(0 if _fails == 0 else 1)

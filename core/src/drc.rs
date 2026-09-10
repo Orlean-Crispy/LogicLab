@@ -40,6 +40,13 @@ impl Severity {
             Severity::Error => "错误",
         }
     }
+
+    pub fn label_en(self) -> &'static str {
+        match self {
+            Severity::Warning => "Warning",
+            Severity::Error => "Error",
+        }
+    }
 }
 
 /// 问题类别
@@ -75,6 +82,17 @@ impl IssueKind {
             IssueKind::CombinationalLoop => "组合环",
             IssueKind::GatedClock => "门控时钟",
             IssueKind::CircularReference => "循环引用",
+        }
+    }
+
+    pub fn label_en(self) -> &'static str {
+        match self {
+            IssueKind::MultiDriver => "Multiple drivers",
+            IssueKind::WidthMismatch => "Width mismatch",
+            IssueKind::DanglingInput => "Dangling input",
+            IssueKind::CombinationalLoop => "Combinational loop",
+            IssueKind::GatedClock => "Gated clock",
+            IssueKind::CircularReference => "Circular reference",
         }
     }
 }

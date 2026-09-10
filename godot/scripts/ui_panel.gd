@@ -1,5 +1,7 @@
 class_name UiPanel
 extends CanvasLayer
+
+const I18n = preload("res://scripts/i18n.gd")
 ## 侧边元件库 + 示例 + 底部运行控制 + 右侧属性面板 + DRC 检查。
 ##
 ## 元件表与参数控件都**由 core 提供**（DefId::ALL 与 DefId::params 是唯一数据源），
@@ -253,8 +255,8 @@ func _build_props_panel(root: Control) -> void:
 func build_library(c) -> void:
 	core = c
 	_lib_ids = c.library_ids()
-	_lib_labels = c.library_labels()
-	_lib_cats = c.library_categories()
+	_lib_labels = c.library_labels(I18n.lang)
+	_lib_cats = c.library_categories(I18n.lang)
 
 	for child in _list.get_children():
 		child.queue_free()
@@ -292,7 +294,10 @@ func build_library(c) -> void:
 # 状态
 # ---------------------------------------------------------------------------
 
+## 状态消息统一在这里翻译：所有提示都从这里过一道，
+## 于是画布里那几十处 emit 不必各自记得包一层。
 func set_status(text: String) -> void:
+	text = I18n.t(text)
 	if _status != null:
 		_status.text = text
 
@@ -339,7 +344,7 @@ func on_selection_changed(id: int) -> void:
 	_props.add_child(name_edit)
 
 	var keys = core.param_keys(def_idx)
-	var labels = core.param_labels(def_idx)
+	var labels = core.param_labels(def_idx, I18n.lang)
 	var kinds = core.param_kinds(def_idx)
 	var lo = core.param_lo(def_idx)
 	var hi = core.param_hi(def_idx)
@@ -357,7 +362,7 @@ func on_selection_changed(id: int) -> void:
 		if kind == 0:
 			_props.add_child(_head_label(label))
 			var labels_csv := ""
-			var all_labels = core.param_choice_labels(def_idx)
+			var all_labels = core.param_choice_labels(def_idx, I18n.lang)
 			if i < all_labels.size():
 				labels_csv = String(all_labels[i])
 			_props.add_child(_choice_row(key, String(choices[i]), labels_csv, cur))

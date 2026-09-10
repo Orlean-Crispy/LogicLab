@@ -1,5 +1,6 @@
 class_name CircuitCanvas
 extends Control
+const I18n = preload("res://scripts/i18n.gd")
 ## 自绘电路画布。
 ##
 ## 架构法则 #1：零 per-component 节点——所有元件、引脚、导线都靠 draw_* 批量绘制，
@@ -97,6 +98,12 @@ func screen_to_cell(s: Vector2) -> Vector2i:
 # 视图缓存
 # ---------------------------------------------------------------------------
 
+## 语言切换后重新拉取组件标签并重绘
+func retranslate() -> void:
+	lib_labels = PackedStringArray()
+	refresh()
+
+
 func refresh() -> void:
 	if core == null:
 		return
@@ -112,7 +119,7 @@ func refresh() -> void:
 	label_names = core.label_names()
 	sub_names = core.board_names()
 	if lib_labels.is_empty():
-		lib_labels = core.library_labels()
+		lib_labels = core.library_labels(I18n.lang)
 		lib_cats = core.library_category_codes()
 		var lib_ids = core.library_ids()
 		def_seven_seg = lib_ids.find("seven_seg")
@@ -270,6 +277,15 @@ func _draw_wires() -> void:
 		i += 5
 
 
+## 世界空间里的文字必须跟着缩放走。
+##
+## 字号写死成像素会出现反直觉的结果：放大画布时元件框一直在长，字却纹丝不动，
+## 于是看上去"放大反而字更小"；缩小时字又会撑破元件框。
+## 下限保证缩到很小时还认得出，上限避免放到很大时糊成一片。
+func _scaled_font_size(base: float, lo := 7.0, hi := 32.0) -> int:
+	return int(clampf(base * zoom, lo, hi))
+
+
 func _draw_components() -> void:
 	var i := 0
 	while i + 7 < comps.size():
@@ -297,22 +313,21 @@ func _draw_components() -> void:
 		if sub >= 0:
 			if zoom > 0.35:
 				var nm := String(sub_names[sub]) if sub < sub_names.size() else "子电路"
-				draw_string(_font, tl + Vector2(3.0, 10.0), nm, HORIZONTAL_ALIGNMENT_LEFT, -1, 9, Color(0.85, 0.95, 1.0))
+				_draw_fitted(tl, nm, Color(0.85, 0.95, 1.0), rect.size.y)
 		elif def_idx == def_seven_seg:
 			_draw_seven_seg(rect, id)
 		elif def_idx == def_display:
 			_draw_display(rect, id)
 		elif zoom > 0.5 and def_idx < lib_labels.size():
-			draw_string(
-				_font,
-				tl + Vector2(3.0, 10.0),
-				lib_labels[def_idx],
-				HORIZONTAL_ALIGNMENT_LEFT,
-				-1,
-				9,
-				Color(0.88, 0.91, 0.95)
-			)
+			_draw_fitted(tl, String(lib_labels[def_idx]), Color(0.88, 0.91, 0.95), rect.size.y)
 		i += 8
+
+
+## 把一行标签塞进元件的屏幕矩形里：字号跟着缩放，同时不超过矩形高度。
+func _draw_fitted(tl: Vector2, text: String, col: Color, box_h: float) -> void:
+	var fs := _scaled_font_size(9.0, 7.0, 24.0)
+	fs = mini(fs, int(maxf(7.0, box_h * 1.1)))
+	draw_string(_font, tl + Vector2(3.0, float(fs) + 1.0), text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, col)
 
 
 ## 七段数码管：十进制读数直接画在元件上（值来自引脚，别处不再存一份）
@@ -394,16 +409,17 @@ func _draw_annotations() -> void:
 		var idx := i / 3
 		var text := String(ann_texts[idx]) if idx < ann_texts.size() else ""
 		var sp := world_to_screen(Vector2(float(ann_pos[i]), float(ann_pos[i + 1])))
-		var size_px := Vector2(float(text.length()) * 6.5 + 10.0, 15.0)
-		draw_rect(Rect2(sp + Vector2(0, -12), size_px), Color(0.07, 0.08, 0.10, 0.80), true)
-		draw_rect(Rect2(sp + Vector2(0, -12), size_px), Color(0.35, 0.34, 0.24), false, 1.0)
+		var fs := _scaled_font_size(10.0)
+		var size_px := Vector2(float(text.length()) * float(fs) * 0.62 + 10.0, float(fs) * 1.5)
+		draw_rect(Rect2(sp + Vector2(0, -float(fs) * 1.2), size_px), Color(0.07, 0.08, 0.10, 0.80), true)
+		draw_rect(Rect2(sp + Vector2(0, -float(fs) * 1.2), size_px), Color(0.35, 0.34, 0.24), false, 1.0)
 		draw_string(
 			_font,
 			sp + Vector2(5, -1),
 			text,
 			HORIZONTAL_ALIGNMENT_LEFT,
 			-1,
-			10,
+			fs,
 			Color(0.88, 0.83, 0.55)
 		)
 		i += 3
@@ -415,7 +431,7 @@ func _draw_labels() -> void:
 		var idx := i / 2
 		var name := String(label_names[idx]) if idx < label_names.size() else ""
 		var sp := world_to_screen(Vector2(float(label_pos[i]), float(label_pos[i + 1])))
-		draw_circle(sp, 3.0, Color(0.45, 0.72, 0.95))
+		draw_circle(sp, maxf(2.0, 3.0 * zoom), Color(0.45, 0.72, 0.95))
 		if zoom > 0.4:
 			draw_string(
 				_font,
@@ -423,7 +439,7 @@ func _draw_labels() -> void:
 				name,
 				HORIZONTAL_ALIGNMENT_LEFT,
 				-1,
-				10,
+				_scaled_font_size(10.0),
 				Color(0.62, 0.82, 1.0)
 			)
 		i += 2

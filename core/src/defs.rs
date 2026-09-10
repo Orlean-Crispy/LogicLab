@@ -70,6 +70,16 @@ impl Category {
         }
     }
 
+    pub fn label_en(self) -> &'static str {
+        match self {
+            Category::Io => "I/O",
+            Category::Logic => "Logic",
+            Category::Routing => "Routing",
+            Category::Arithmetic => "Arithmetic",
+            Category::Memory => "Memory",
+        }
+    }
+
     /// 紧凑编码（壳用它查颜色表，避免比较字符串）
     pub fn code(self) -> i64 {
         match self {
@@ -257,11 +267,16 @@ pub enum ParamKind {
 }
 
 /// 一个可编辑参数的描述
+///
+/// 中英两份标签都放在这里：参数属于组件知识，翻译不该散到壳里再维护一份。
 #[derive(Clone, Copy, Debug)]
 pub struct ParamDesc {
     pub key: &'static str,
     pub label: &'static str,
+    pub label_en: &'static str,
     pub kind: ParamKind,
+    /// Choice 档位的英文名；空表示沿用 kind 里的（纯数字档位无需翻译）
+    pub labels_en: &'static [&'static str],
 }
 
 const WIDTH_CHOICES: &[i64] = &[1, 4, 8, 16, 32];
@@ -269,36 +284,90 @@ const WIDTH_CHOICES: &[i64] = &[1, 4, 8, 16, 32];
 const P_WIDTH: ParamDesc = ParamDesc {
     key: "width",
     label: "位宽",
+    label_en: "Width",
     kind: ParamKind::Choice { values: WIDTH_CHOICES, labels: &[] },
+    labels_en: &[],
 };
-const P_INPUTS: ParamDesc =
-    ParamDesc { key: "inputs", label: "输入数", kind: ParamKind::Int { min: 2, max: 8 } };
-const P_VALUE: ParamDesc =
-    ParamDesc { key: "value", label: "值", kind: ParamKind::Int { min: 0, max: 65535 } };
-const P_HIGH: ParamDesc =
-    ParamDesc { key: "high", label: "高电平拍数", kind: ParamKind::Int { min: 1, max: 255 } };
-const P_LOW: ParamDesc =
-    ParamDesc { key: "low", label: "低电平拍数", kind: ParamKind::Int { min: 1, max: 255 } };
-const P_DEPTH: ParamDesc =
-    ParamDesc { key: "depth", label: "深度", kind: ParamKind::Int { min: 2, max: 4096 } };
-const P_LOW_BITS: ParamDesc =
-    ParamDesc { key: "low_bits", label: "低段位宽", kind: ParamKind::Int { min: 1, max: 31 } };
-const P_SIGNED: ParamDesc =
-    ParamDesc { key: "signed", label: "有符号比较", kind: ParamKind::Bool { bit: OPT_SIGNED } };
-const P_ENABLE: ParamDesc =
-    ParamDesc { key: "enable", label: "使能引脚", kind: ParamKind::Bool { bit: OPT_ENABLE } };
-const P_RESET: ParamDesc =
-    ParamDesc { key: "reset", label: "复位引脚", kind: ParamKind::Bool { bit: OPT_RESET } };
-const P_CARRY: ParamDesc =
-    ParamDesc { key: "carry", label: "进位引脚", kind: ParamKind::Bool { bit: OPT_CARRY } };
+const P_INPUTS: ParamDesc = ParamDesc {
+    key: "inputs",
+    label: "输入数",
+    label_en: "Inputs",
+    kind: ParamKind::Int { min: 2, max: 8 },
+    labels_en: &[],
+};
+const P_VALUE: ParamDesc = ParamDesc {
+    key: "value",
+    label: "值",
+    label_en: "Value",
+    kind: ParamKind::Int { min: 0, max: 65535 },
+    labels_en: &[],
+};
+const P_HIGH: ParamDesc = ParamDesc {
+    key: "high",
+    label: "高电平拍数",
+    label_en: "High ticks",
+    kind: ParamKind::Int { min: 1, max: 255 },
+    labels_en: &[],
+};
+const P_LOW: ParamDesc = ParamDesc {
+    key: "low",
+    label: "低电平拍数",
+    label_en: "Low ticks",
+    kind: ParamKind::Int { min: 1, max: 255 },
+    labels_en: &[],
+};
+const P_DEPTH: ParamDesc = ParamDesc {
+    key: "depth",
+    label: "深度",
+    label_en: "Depth",
+    kind: ParamKind::Int { min: 2, max: 4096 },
+    labels_en: &[],
+};
+const P_LOW_BITS: ParamDesc = ParamDesc {
+    key: "low_bits",
+    label: "低段位宽",
+    label_en: "Low bits",
+    kind: ParamKind::Int { min: 1, max: 31 },
+    labels_en: &[],
+};
+const P_SIGNED: ParamDesc = ParamDesc {
+    key: "signed",
+    label: "有符号比较",
+    label_en: "Signed compare",
+    kind: ParamKind::Bool { bit: OPT_SIGNED },
+    labels_en: &[],
+};
+const P_ENABLE: ParamDesc = ParamDesc {
+    key: "enable",
+    label: "使能引脚",
+    label_en: "Enable pin",
+    kind: ParamKind::Bool { bit: OPT_ENABLE },
+    labels_en: &[],
+};
+const P_RESET: ParamDesc = ParamDesc {
+    key: "reset",
+    label: "复位引脚",
+    label_en: "Reset pin",
+    kind: ParamKind::Bool { bit: OPT_RESET },
+    labels_en: &[],
+};
+const P_CARRY: ParamDesc = ParamDesc {
+    key: "carry",
+    label: "进位引脚",
+    label_en: "Carry pin",
+    kind: ParamKind::Bool { bit: OPT_CARRY },
+    labels_en: &[],
+};
 /// 移位器方向（v4 §6.4 要求左移 / 逻辑右移 / 算术右移三种）
 const P_SHIFT_MODE: ParamDesc = ParamDesc {
     key: "mode",
     label: "移位方向",
+    label_en: "Shift mode",
     kind: ParamKind::Choice {
         values: &[0, 1, 2],
         labels: &["左移", "逻辑右移", "算术右移"],
     },
+    labels_en: &["Left", "Logical right", "Arithmetic right"],
 };
 
 /// 移位器方向：0 左移、1 逻辑右移、2 算术右移
@@ -491,6 +560,49 @@ impl DefId {
             DefId::OutputPin => "输出接口",
             DefId::SevenSeg => "数码管",
             DefId::Display => "显示屏",
+        }
+    }
+
+    /// 英文显示名。中英两份都放在这里维护——组件名属于 core 的知识，
+    /// 不该散到壳里去做一份可能漂移的翻译表。
+    pub fn label_en(self) -> &'static str {
+        match self {
+            DefId::Button => "Button",
+            DefId::Switch => "Switch",
+            DefId::Clock => "Clock",
+            DefId::Constant => "Constant",
+            DefId::Led => "Probe / LED",
+            DefId::Not => "NOT",
+            DefId::Buffer => "Buffer",
+            DefId::And => "AND",
+            DefId::Or => "OR",
+            DefId::Nand => "NAND",
+            DefId::Nor => "NOR",
+            DefId::Xor => "XOR",
+            DefId::Xnor => "XNOR",
+            DefId::Splitter => "Splitter",
+            DefId::Merger => "Merger",
+            DefId::Mux => "MUX",
+            DefId::Decoder => "Decoder",
+            DefId::PriorityEncoder => "Priority Encoder",
+            DefId::HalfAdder => "Half Adder",
+            DefId::FullAdder => "Full Adder",
+            DefId::Adder => "Adder",
+            DefId::Subtractor => "Subtractor",
+            DefId::Multiplier => "Multiplier",
+            DefId::Comparator => "Comparator",
+            DefId::Shifter => "Shifter",
+            DefId::Alu => "ALU",
+            DefId::Dff => "D Flip-Flop",
+            DefId::Register => "Register",
+            DefId::Counter => "Counter",
+            DefId::Ram => "RAM",
+            DefId::Rom => "ROM",
+            DefId::Custom => "Sub-circuit",
+            DefId::InputPin => "Input Pin",
+            DefId::OutputPin => "Output Pin",
+            DefId::SevenSeg => "7-Segment",
+            DefId::Display => "Display",
         }
     }
 

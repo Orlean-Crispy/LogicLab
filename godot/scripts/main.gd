@@ -7,8 +7,10 @@ const UiPanelScript := preload("res://scripts/ui_panel.gd")
 const HierPanelScript := preload("res://scripts/hier_panel.gd")
 const WavePanelScript := preload("res://scripts/wave_panel.gd")
 
+const I18n = preload("res://scripts/i18n.gd")
+
 const VERSION := "0.2.0"
-const CHANNEL := "Checkpoint 1 Hotfix"
+const CHANNEL := "Checkpoint 2"
 
 var core                    # LogicLab（GDExtension 类）
 var canvas                  # CircuitCanvas
@@ -71,6 +73,7 @@ func _ready() -> void:
 	hier.open_requested.connect(canvas.open_board_index)
 	hier.extract_requested.connect(_on_extract)
 	hier.wave_toggled.connect(_on_wave_toggled)
+	hier.language_toggled.connect(_on_language_toggled)
 
 	# 画布 → 面板
 	canvas.selection_changed.connect(panel.on_selection_changed)
@@ -100,6 +103,17 @@ func _on_wave_toggled(on: bool) -> void:
 	wave.visible = on
 	if on:
 		wave.queue_redraw()
+
+
+## 切换界面语言：重拉组件标签 → 重建导航条 → 遍历替换面板文案。
+## 顺序不能反：refresh 会把下拉项按中文重建成原文，必须最后再 apply 一遍。
+func _on_language_toggled() -> void:
+	I18n.toggle()
+	canvas.retranslate()
+	hier.refresh()
+	for p in [panel, hier, wave]:
+		I18n.apply(p)
+	wave.queue_redraw()
 
 
 func _on_wave_changed() -> void:

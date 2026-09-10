@@ -58,15 +58,22 @@ impl LogicLab {
     }
 
     #[func]
-    fn library_labels(&self) -> PackedStringArray {
-        DefId::ALL.iter().map(|d| GString::from(d.label())).collect()
+    /// lang: 0 = 中文，1 = English（非 0 一律按英文处理）
+    fn library_labels(&self, lang: i32) -> PackedStringArray {
+        DefId::ALL
+            .iter()
+            .map(|d| GString::from(if lang == 0 { d.label() } else { d.label_en() }))
+            .collect()
     }
 
     #[func]
-    fn library_categories(&self) -> PackedStringArray {
+    fn library_categories(&self, lang: i32) -> PackedStringArray {
         DefId::ALL
             .iter()
-            .map(|d| GString::from(d.category().label()))
+            .map(|d| {
+                let c = d.category();
+                GString::from(if lang == 0 { c.label() } else { c.label_en() })
+            })
             .collect()
     }
 
@@ -288,10 +295,10 @@ impl LogicLab {
     }
 
     #[func]
-    fn param_labels(&self, def_idx: i32) -> PackedStringArray {
+    fn param_labels(&self, def_idx: i32, lang: i32) -> PackedStringArray {
         DefId::params(Self::def_of(def_idx))
             .iter()
-            .map(|p| GString::from(p.label))
+            .map(|p| GString::from(if lang == 0 { p.label } else { p.label_en }))
             .collect()
     }
 
@@ -333,11 +340,17 @@ impl LogicLab {
 
     /// 档位的显示名（与 param_choices 一一对应）；无标签时回落到数字
     #[func]
-    fn param_choice_labels(&self, def_idx: i32) -> PackedStringArray {
+    fn param_choice_labels(&self, def_idx: i32, lang: i32) -> PackedStringArray {
         DefId::params(Self::def_of(def_idx))
             .iter()
             .map(|p| match p.kind {
                 ParamKind::Choice { values, labels } => {
+                    // 英文档位名优先；没给就沿用中文标的，最后回落到数字本身
+                    let labels = if lang != 0 && !p.labels_en.is_empty() {
+                        p.labels_en
+                    } else {
+                        labels
+                    };
                     if labels.is_empty() {
                         GString::from(&join_i64(values))
                     } else {
@@ -946,7 +959,7 @@ impl LogicLab {
 
     /// [kind, label] × N —— 问题类别对照表
     #[func]
-    fn drc_kind_labels(&self) -> PackedStringArray {
+    fn drc_kind_labels(&self, lang: i32) -> PackedStringArray {
         const KINDS: [drc::IssueKind; 6] = [
             drc::IssueKind::MultiDriver,
             drc::IssueKind::WidthMismatch,
@@ -955,7 +968,10 @@ impl LogicLab {
             drc::IssueKind::GatedClock,
             drc::IssueKind::CircularReference,
         ];
-        KINDS.iter().map(|k| GString::from(k.label())).collect()
+        KINDS
+            .iter()
+            .map(|k| GString::from(if lang == 0 { k.label() } else { k.label_en() }))
+            .collect()
     }
 }
 
