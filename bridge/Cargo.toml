@@ -1,0 +1,15 @@
+[package]
+name = "logiclab-bridge"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+logiclab-core = { path = "../core" }
+godot = { git = "https://github.com/godot-rust/gdext", tag = "v0.5.5", package = "godot" }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

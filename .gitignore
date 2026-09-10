@@ -1,0 +1,15 @@
+# 构建产物
+/target/
+/*/target/
+/dist/
+/godot/build/
+/godot/.godot/
+
+# GDExtension 产物：由 cargo 构建，不入库
+/godot/logiclab_bridge*.dll
+
+# 单文件发行包走 GitHub Releases，不入库（单个 35~44 MB，进 git 会让仓库膨胀）
+/releases/**/*.exe
+
+# 编辑器 / 工具临时文件
+*.tmp

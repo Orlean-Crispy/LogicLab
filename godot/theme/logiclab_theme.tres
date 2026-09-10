@@ -1,0 +1,9 @@
+[gd_resource type="Theme" load_steps=2 format=3 uid="uid://logiclabtheme1"]
+
+[ext_resource type="FontFile" path="res://fonts/HarmonyOSSansSC_Regular.ttf" id="1"]
+
+[resource]
+default_font = ExtResource("1")
+default_font_size = 14
+Label/fonts/font = ExtResource("1")
+Label/font_sizes/font_size = 14

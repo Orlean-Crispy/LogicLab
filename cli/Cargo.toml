@@ -1,0 +1,12 @@
+[package]
+name = "logiclab-cli"
+version = "0.1.0"
+edition = "2021"
+description = "LogicLab headless 命令行：跑仿真、看工程、列组件。不依赖任何引擎。"
+
+[[bin]]
+name = "logiclab"
+path = "src/main.rs"
+
+[dependencies]
+logiclab-core = { path = "../core" }

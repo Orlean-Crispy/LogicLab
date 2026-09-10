@@ -1,0 +1,11 @@
+# LogicLab 工作区
+#
+# core + cli 是「可以脱离 Godot 存活」的那一半：它们的依赖树里没有任何引擎类型
+# （ADR-21）。默认成员只有这两个，所以日常的 cargo test / clippy 不需要 Godot，
+# 也不需要联网拉 gdext。
+[workspace]
+resolver = "2"
+members = ["core", "cli", "launcher"]
+default-members = ["core", "cli"]
+# bridge 依赖 gdext（git 依赖），单独构建：cd bridge && cargo build
+exclude = ["bridge"]

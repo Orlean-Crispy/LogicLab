@@ -1,0 +1,20 @@
+[package]
+name = "logiclab-launcher"
+version = "0.1.0"
+edition = "2021"
+description = "Self-extracting launcher: bundles the Godot game + GDExtension DLL into one exe"
+
+[[bin]]
+name = "logiclab-launcher"
+path = "src/main.rs"
+
+[dependencies]
+# Minimal, pure-Rust zip reader (deflate only). Keeps the launcher tiny.
+zip = { version = "2", default-features = false, features = ["deflate"] }
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

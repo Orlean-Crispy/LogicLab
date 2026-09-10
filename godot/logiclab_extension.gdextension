@@ -1,0 +1,9 @@
+[configuration]
+entry_symbol = "logiclab_entry"
+compatibility_minimum = "4.3"
+
+[libraries]
+windows.debug.x86_64 = "res://logiclab_bridge.dll"
+windows.release.x86_64 = "res://logiclab_bridge.dll"
+windows.debug.arm64 = "res://logiclab_bridge_arm64.dll"
+windows.release.arm64 = "res://logiclab_bridge_arm64.dll"

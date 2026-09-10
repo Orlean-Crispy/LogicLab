@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="128" y2="128" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#232733"/>
+      <stop offset="1" stop-color="#12141a"/>
+    </linearGradient>
+    <linearGradient id="gate" x1="44" y1="0" x2="92" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#34d399"/>
+      <stop offset="1" stop-color="#22d3ee"/>
+    </linearGradient>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="2.2" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <rect x="0" y="0" width="128" height="128" rx="26" fill="url(#bg)"/>
+  <rect x="1.5" y="1.5" width="125" height="125" rx="25" fill="none" stroke="#39415a" stroke-width="2"/>
+
+  <!-- 输入走线 -->
+  <path d="M18 46 H40" stroke="#60a5fa" stroke-width="4" stroke-linecap="round"/>
+  <path d="M18 82 H40" stroke="#60a5fa" stroke-width="4" stroke-linecap="round"/>
+
+  <!-- D 形逻辑门（左侧竖线 + 右侧弧） -->
+  <path d="M40 34 V94" stroke="url(#gate)" stroke-width="5" stroke-linecap="round" fill="none"/>
+  <path d="M40 34 Q92 34 92 64 Q92 94 40 94" stroke="url(#gate)" stroke-width="5" stroke-linecap="round" fill="none"/>
+
+  <!-- 输出走线 + 节点 -->
+  <path d="M92 64 H112" stroke="#60a5fa" stroke-width="4" stroke-linecap="round"/>
+
+  <!-- 发光节点 -->
+  <circle cx="18" cy="46" r="4.5" fill="#fbbf24" filter="url(#glow)"/>
+  <circle cx="18" cy="82" r="4.5" fill="#fbbf24" filter="url(#glow)"/>
+  <circle cx="112" cy="64" r="5" fill="#fbbf24" filter="url(#glow)"/>
+</svg>
