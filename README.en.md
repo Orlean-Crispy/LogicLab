@@ -165,9 +165,7 @@ This project makes **heavy use of AI-assisted development**, and the division of
 | Implementation | An AI coding agent (Rust core, GDExtension bridge, GDScript shell, tests and docs) |
 | Acceptance | Executable tests and benchmarks (core unit tests, headless smoke tests, performance benchmark all green) |
 
-There is no intention to dress this up as something else. What makes a project in its testing phase worth a look
-is not who typed the code, but whether its tests go green and whether its numbers reproduce — both are in this
-repository, ready to be checked by anyone.
+All tests and performance benchmarks ship with the repository — run them to see the actual results.
 
 ## License
 
