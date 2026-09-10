@@ -38,6 +38,8 @@ var lib_labels := PackedStringArray()
 var lib_cats := PackedInt64Array()
 var ann_pos := PackedInt64Array()
 var ann_texts := PackedStringArray()
+var label_pos := PackedInt64Array()
+var label_names := PackedStringArray()
 
 # 交互
 var pending_def := ""
@@ -96,6 +98,8 @@ func refresh() -> void:
 	net_vals = core.net_values()
 	ann_pos = core.annotations()
 	ann_texts = core.annotation_texts()
+	label_pos = core.labels()
+	label_names = core.label_names()
 	if lib_labels.is_empty():
 		lib_labels = core.library_labels()
 		lib_cats = core.library_category_codes()
@@ -188,6 +192,7 @@ func _draw() -> void:
 	_draw_components()
 	_draw_pins()
 	_draw_annotations()
+	_draw_labels()
 	_draw_wiring_preview()
 
 
@@ -334,6 +339,26 @@ func _draw_annotations() -> void:
 			Color(0.88, 0.83, 0.55)
 		)
 		i += 3
+
+
+func _draw_labels() -> void:
+	var i := 0
+	while i + 1 < label_pos.size():
+		var idx := i / 2
+		var name := String(label_names[idx]) if idx < label_names.size() else ""
+		var sp := world_to_screen(Vector2(float(label_pos[i]), float(label_pos[i + 1])))
+		draw_circle(sp, 3.0, Color(0.45, 0.72, 0.95))
+		if zoom > 0.4:
+			draw_string(
+				_font,
+				sp + Vector2(6, 4),
+				name,
+				HORIZONTAL_ALIGNMENT_LEFT,
+				-1,
+				10,
+				Color(0.62, 0.82, 1.0)
+			)
+		i += 2
 
 
 func _draw_wiring_preview() -> void:
@@ -497,9 +522,54 @@ func _on_mouse_motion(e: InputEventMouseMotion) -> void:
 	if hp != hover_pin:
 		hover_pin = hp
 		queue_redraw()
+	_update_tooltip(cell, hp)
+
+
+## 悬停提示（v4 §8 的"悬停探针"）：元件名 + 引脚当前值
+func _update_tooltip(cell: Vector2i, hp: Vector2i) -> void:
+	var lines := PackedStringArray()
+	var cid: int = core.pick_component(cell.x, cell.y)
+	if cid >= 0:
+		var info = core.component_info(cid)
+		if info.size() >= 10:
+			lines.append(
+				"%s  [%s]" % [lib_labels[int(info[0])], String(core.instance_name(cid))]
+			)
+	if hp.x >= 0:
+		lines.append("引脚值 %s" % _pin_value_text(hp.x, hp.y))
+	var tip := "\n".join(lines)
+	if tip != tooltip_text:
+		tooltip_text = tip
+
+
+func _pin_value_text(inst: int, slot: int) -> String:
+	var i := 0
+	while i + 6 < pins_arr.size():
+		if int(pins_arr[i]) == inst and int(pins_arr[i + 1]) == slot:
+			return _format_net(int(pins_arr[i + 6]), int(pins_arr[i + 5]))
+		i += 7
+	return "?"
+
+
+func _format_net(net: int, bits: int) -> String:
+	if net < 0:
+		return "未连接"
+	if _net_unknown(net):
+		return "X（未定义/冲突）"
+	var v := _net_field(net, 0)
+	if bits <= 1:
+		return "1" if v != 0 else "0"
+	return "0x%X" % v
 
 
 func _on_key(e: InputEventKey) -> void:
+	if e.ctrl_pressed or e.meta_pressed:
+		match e.keycode:
+			KEY_Z:
+				do_undo()
+			KEY_Y:
+				do_redo()
+		return
 	match e.keycode:
 		KEY_R:
 			rotate_selected()
@@ -517,6 +587,8 @@ func _on_key(e: InputEventKey) -> void:
 			center_on_content()
 		KEY_T:
 			_insert_annotation_at_hover()
+		KEY_L:
+			_insert_label_at_hover()
 
 
 ## 在鼠标所在格插入一条注释，并立刻让用户输入内容
@@ -530,28 +602,82 @@ func _insert_annotation_at_hover() -> void:
 	_edit_annotation(id)
 
 
-func _edit_annotation(id: int) -> void:
-	if id < 0:
-		return
+## 通用单行输入框（注释与网络标签共用）
+func _prompt_text(title: String, initial: String, on_ok: Callable) -> void:
 	var dlg := AcceptDialog.new()
-	dlg.title = "注释内容"
+	dlg.title = title
 	dlg.ok_button_text = "确定"
 	var edit := LineEdit.new()
-	edit.text = String(core.annotation_texts()[id]) if id < core.annotation_texts().size() else ""
+	edit.text = initial
 	edit.custom_minimum_size = Vector2(360, 0)
 	dlg.add_child(edit)
 	add_child(dlg)
-	dlg.confirmed.connect(
-		func():
-			core.set_annotation_text(id, edit.text)
-			refresh()
-			status_changed.emit("注释已更新")
-	)
+	dlg.confirmed.connect(func(): on_ok.call(edit.text))
+	dlg.confirmed.connect(dlg.queue_free)
 	dlg.close_requested.connect(dlg.queue_free)
 	dlg.canceled.connect(dlg.queue_free)
 	dlg.popup_centered(Vector2i(420, 110))
 	edit.select_all()
 	edit.grab_focus()
+
+
+func _edit_annotation(id: int) -> void:
+	if id < 0:
+		return
+	var texts = core.annotation_texts()
+	var cur := String(texts[id]) if id < texts.size() else ""
+	_prompt_text(
+		"注释内容",
+		cur,
+		func(t: String):
+			core.set_annotation_text(id, t)
+			refresh()
+			status_changed.emit("注释已更新")
+	)
+
+
+## 在网络标签处插入/修改（同名即相连，v4 §8）
+func _insert_label_at_hover() -> void:
+	if core == null:
+		return
+	var cell := screen_to_cell(get_local_mouse_position())
+	var id: int = core.add_label(cell.x, cell.y, "NET")
+	refresh()
+	_edit_label(id)
+
+
+func _edit_label(id: int) -> void:
+	if id < 0:
+		return
+	var names = core.label_names()
+	var cur := String(names[id]) if id < names.size() else ""
+	_prompt_text(
+		"网络名（同名即相连）",
+		cur,
+		func(t: String):
+			core.set_label_name(id, t)
+			refresh()
+			status_changed.emit("网络标签已更新")
+	)
+
+
+## 撤销 / 重做（ADR-9）
+func do_undo() -> void:
+	_apply_history(core.undo(), "撤销")
+
+
+func do_redo() -> void:
+	_apply_history(core.redo(), "重做")
+
+
+func _apply_history(ok: bool, what: String) -> void:
+	if not ok:
+		status_changed.emit("没有可%s的操作" % what)
+		return
+	selected = -1
+	selection_changed.emit(-1)
+	refresh()
+	status_changed.emit("已%s" % what)
 
 
 ## 从 DRC 列表定位到某个组件（v4 §8：双击条目定位并高亮）

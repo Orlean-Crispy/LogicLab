@@ -5,15 +5,19 @@
 > 版本留档：`releases/{X86,ARM64}/`，命名 `LogicLab-<版本>-<架构>.exe`
 > 远 端：https://github.com/Orlean-Crispy/LogicLab
 
-## 1. 当前状态：0.1.0 Beta 3
+## 1. 当前状态：0.1.0 Beta 4
 
 | 部分 | 状态 |
 |---|---|
-| `core`（纯 Rust，零引擎依赖） | 73 个单测全绿 |
+| `core`（纯 Rust，零引擎依赖） | **83** 个单测全绿 |
 | `cli`（headless 命令行） | components / demo / example / info / run / bench |
-| `bridge`（gdext 薄桥，598 行） | 基于 Session，x64 + arm64 |
+| `bridge`（gdext 薄桥） | 基于 Session，x64 + arm64 |
 | Godot 壳 | GUI 与 headless 均启动无错 |
-| 回归 `godot/tests/smoke.gd` | 52 项全通过 |
+| 回归 `godot/tests/smoke.gd` | **71** 项全通过 |
+
+已实现：放置/拖动/旋转/删除/**撤销重做**/连线（自动避让）/开关/参数编辑/
+文本注释/**网络标签**/平移缩放/单步运行调速/存取/**DRC 与双击定位**/
+**关键路径报告**/**悬停探针显示值**。
 
 ## 2. 架构（三层 + 门面）
 
@@ -77,13 +81,13 @@ cargo run --release -p logiclab-cli -- bench   # 万级规模基准
 
 ## 6. 待办（按优先级）
 
-1. **撤销/重做**（ADR-9，命令栈挂 Session；编辑体验最大短板）
-2. 封装（Board → 组件，含自引用环检测、涌现延迟 ADR-28）
-3. Net Label、多 Board
-4. 波形查看器 + VCD（层级命名）、测试台、CLI JSON 报告
-5. 仿真 checkpoint（v4 §9.7）
-6. Verilog 导出（DRC 已就位，正好接上）
-7. 振荡检测（§5.1 要求 UI 警告）
+1. **封装**（Board → 组件，含自引用环检测与涌现延迟 ADR-28）—— 剩下的最大一块架构工作
+2. **波形查看器 + VCD 导出**（层级命名，§9.1）
+3. **测试台**（CSV + 随机模式 + 层级断言，§9.3）
+4. **Verilog 导出**（DRC 与关键路径都已就位，正好接上，§9.2）
+5. 仿真 checkpoint（§9.7）
+6. 多 Board、框选、复制粘贴
+7. 虚拟外设（Display/Keyboard/数码管/UART，§6.6，M5）
 
 ## 7. 旁支
 

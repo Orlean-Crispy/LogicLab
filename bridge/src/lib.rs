@@ -20,6 +20,11 @@ fn def_index(def: DefId) -> i64 {
     DefId::ALL.iter().position(|&d| d == def).unwrap_or(0) as i64
 }
 
+/// 逗号拼接（UI 侧按逗号切分）
+fn join_i64(values: &[i64]) -> String {
+    values.iter().map(|v| v.to_string()).collect::<Vec<_>>().join(",")
+}
+
 fn net_code(net: u32) -> i64 {
     if net == NO_NET {
         -1
@@ -136,6 +141,75 @@ impl LogicLab {
     }
 
     // -----------------------------------------------------------------------
+    // 撤销 / 重做（ADR-9）
+    // -----------------------------------------------------------------------
+
+    #[func]
+    fn can_undo(&self) -> bool {
+        self.session.can_undo()
+    }
+
+    #[func]
+    fn can_redo(&self) -> bool {
+        self.session.can_redo()
+    }
+
+    #[func]
+    fn undo(&mut self) -> bool {
+        self.session.undo()
+    }
+
+    #[func]
+    fn redo(&mut self) -> bool {
+        self.session.redo()
+    }
+
+    // -----------------------------------------------------------------------
+    // 网络标签（v4 §8：同名即相连）
+    // -----------------------------------------------------------------------
+
+    #[func]
+    fn add_label(&mut self, x: i32, y: i32, name: GString) -> i32 {
+        self.session.add_label(x, y, &name.to_string()) as i32
+    }
+
+    #[func]
+    fn remove_label(&mut self, id: i32) -> bool {
+        self.session.remove_label(id as u32)
+    }
+
+    #[func]
+    fn set_label_name(&mut self, id: i32, name: GString) {
+        self.session.set_label_name(id as u32, &name.to_string());
+    }
+
+    #[func]
+    fn pick_label(&self, x: i32, y: i32) -> i32 {
+        self.session.board().pick_label(x, y).map_or(-1, |i| i as i32)
+    }
+
+    /// [x, y] × N（名字用 label_names 取）
+    #[func]
+    fn labels(&self) -> PackedInt64Array {
+        let mut out = PackedInt64Array::new();
+        for l in &self.session.board().labels {
+            out.push(l.x as i64);
+            out.push(l.y as i64);
+        }
+        out
+    }
+
+    #[func]
+    fn label_names(&self) -> PackedStringArray {
+        self.session
+            .board()
+            .labels
+            .iter()
+            .map(|l| GString::from(&l.name))
+            .collect()
+    }
+
+    // -----------------------------------------------------------------------
     // 文本注释（v4 §6.7）
     // -----------------------------------------------------------------------
 
@@ -198,7 +272,7 @@ impl LogicLab {
         DefId::params(Self::def_of(def_idx))
             .iter()
             .map(|p| match p.kind {
-                ParamKind::Choice(_) => 0i64,
+                ParamKind::Choice { .. } => 0i64,
                 ParamKind::Int { .. } => 1,
                 ParamKind::Bool { .. } => 2,
             })
@@ -226,7 +300,7 @@ impl LogicLab {
         DefId::params(Self::def_of(def_idx))
             .iter()
             .map(|p| match p.kind {
-                ParamKind::Choice(_) => 0,
+                ParamKind::Choice { .. } => 0,
                 ParamKind::Int { min, .. } => min,
                 ParamKind::Bool { .. } => 0,
             })
@@ -238,20 +312,37 @@ impl LogicLab {
         DefId::params(Self::def_of(def_idx))
             .iter()
             .map(|p| match p.kind {
-                ParamKind::Choice(_) => 0,
+                ParamKind::Choice { .. } => 0,
                 ParamKind::Int { max, .. } => max,
                 ParamKind::Bool { .. } => 1,
             })
             .collect()
     }
 
+    /// 档位选择的可选值，逗号分隔；非档位项为空串
     #[func]
     fn param_choices(&self, def_idx: i32) -> PackedStringArray {
         DefId::params(Self::def_of(def_idx))
             .iter()
             .map(|p| match p.kind {
-                ParamKind::Choice(v) => {
-                    GString::from(&v.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(","))
+                ParamKind::Choice { values, .. } => GString::from(&join_i64(values)),
+                _ => GString::from(""),
+            })
+            .collect()
+    }
+
+    /// 档位的显示名（与 param_choices 一一对应）；无标签时回落到数字
+    #[func]
+    fn param_choice_labels(&self, def_idx: i32) -> PackedStringArray {
+        DefId::params(Self::def_of(def_idx))
+            .iter()
+            .map(|p| match p.kind {
+                ParamKind::Choice { values, labels } => {
+                    if labels.is_empty() {
+                        GString::from(&join_i64(values))
+                    } else {
+                        GString::from(&labels.join(","))
+                    }
                 }
                 _ => GString::from(""),
             })
@@ -534,6 +625,19 @@ impl LogicLab {
             .iter()
             .map(|i| GString::from(&format!("[{}] {}", i.kind.label(), i.detail)))
             .collect()
+    }
+
+    /// 关键路径：[ticks, inst, inst, …]（无环电路才有；有环返回空）
+    #[func]
+    fn critical_path(&self) -> PackedInt64Array {
+        let mut out = PackedInt64Array::new();
+        if let Some(cp) = drc::critical_path(self.session.board()) {
+            out.push(cp.ticks as i64);
+            for c in &cp.components {
+                out.push(*c as i64);
+            }
+        }
+        out
     }
 
     /// [错误数, 警告数]

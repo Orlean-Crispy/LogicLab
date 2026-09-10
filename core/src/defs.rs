@@ -165,7 +165,7 @@ impl Params {
             "enable" => i64::from(self.opts & OPT_ENABLE != 0),
             "reset" => i64::from(self.opts & OPT_RESET != 0),
             "carry" => i64::from(self.opts & OPT_CARRY != 0),
-            "shift_left" => i64::from(self.opts & OPT_SHIFT_LEFT != 0),
+            "mode" => shift_mode(self) as i64,
             _ => 0,
         }
     }
@@ -229,8 +229,8 @@ impl Params {
                 flag(self, OPT_CARRY, value != 0);
                 true
             }
-            "shift_left" => {
-                flag(self, OPT_SHIFT_LEFT, value != 0);
+            "mode" => {
+                self.value = value.clamp(0, 2) as u32;
                 true
             }
             _ => false,
@@ -248,8 +248,8 @@ impl Params {
 /// 参数控件类型
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ParamKind {
-    /// 从固定档位里选（例如位宽）
-    Choice(&'static [i64]),
+    /// 从固定档位里选；labels 为空则显示数字本身
+    Choice { values: &'static [i64], labels: &'static [&'static str] },
     /// 整数范围
     Int { min: i64, max: i64 },
     /// 布尔开关，对应 opts 里的某一位
@@ -266,8 +266,11 @@ pub struct ParamDesc {
 
 const WIDTH_CHOICES: &[i64] = &[1, 4, 8, 16, 32];
 
-const P_WIDTH: ParamDesc =
-    ParamDesc { key: "width", label: "位宽", kind: ParamKind::Choice(WIDTH_CHOICES) };
+const P_WIDTH: ParamDesc = ParamDesc {
+    key: "width",
+    label: "位宽",
+    kind: ParamKind::Choice { values: WIDTH_CHOICES, labels: &[] },
+};
 const P_INPUTS: ParamDesc =
     ParamDesc { key: "inputs", label: "输入数", kind: ParamKind::Int { min: 2, max: 8 } };
 const P_VALUE: ParamDesc =
@@ -288,11 +291,21 @@ const P_RESET: ParamDesc =
     ParamDesc { key: "reset", label: "复位引脚", kind: ParamKind::Bool { bit: OPT_RESET } };
 const P_CARRY: ParamDesc =
     ParamDesc { key: "carry", label: "进位引脚", kind: ParamKind::Bool { bit: OPT_CARRY } };
-const P_SHIFT_LEFT: ParamDesc = ParamDesc {
-    key: "shift_left",
-    label: "左移（否则右移）",
-    kind: ParamKind::Bool { bit: OPT_SHIFT_LEFT },
+/// 移位器方向（v4 §6.4 要求左移 / 逻辑右移 / 算术右移三种）
+const P_SHIFT_MODE: ParamDesc = ParamDesc {
+    key: "mode",
+    label: "移位方向",
+    kind: ParamKind::Choice {
+        values: &[0, 1, 2],
+        labels: &["左移", "逻辑右移", "算术右移"],
+    },
 };
+
+/// 移位器方向：0 左移、1 逻辑右移、2 算术右移
+#[inline]
+pub fn shift_mode(p: &Params) -> u8 {
+    p.value.min(2) as u8
+}
 
 // ---------------------------------------------------------------------------
 // 组件种类
@@ -572,7 +585,7 @@ impl DefId {
             DefId::Adder | DefId::Subtractor => &[P_WIDTH, P_CARRY],
             DefId::Multiplier => &[P_WIDTH],
             DefId::Comparator => &[P_WIDTH, P_SIGNED],
-            DefId::Shifter => &[P_WIDTH, P_SHIFT_LEFT],
+            DefId::Shifter => &[P_WIDTH, P_SHIFT_MODE],
             DefId::Alu => &[P_WIDTH],
             DefId::Dff => &[P_ENABLE, P_RESET],
             DefId::Register | DefId::Counter => &[P_WIDTH, P_ENABLE, P_RESET],
@@ -1042,10 +1055,10 @@ fn eval_arith(def: DefId, p: &Params, ins: &[NetValue], outs: &mut [NetValue]) {
         DefId::Shifter => {
             let a = ins[0].get(w);
             let sh = ins[1].get(bits_needed(w as u32));
-            let y = if p.opts & OPT_SHIFT_LEFT != 0 {
-                shl(a, sh, w)
-            } else {
-                shr(a, sh, w)
+            let y = match shift_mode(p) {
+                0 => shl(a, sh, w),
+                1 => shr(a, sh, w),
+                _ => sar(a, sh, w),
             };
             outs[0] = NetValue::from_u32(y, w);
         }

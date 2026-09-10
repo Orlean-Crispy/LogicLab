@@ -34,6 +34,8 @@ func _ready() -> void:
 	panel.example_selected.connect(canvas.load_example)
 	panel.tick_rate_changed.connect(canvas.set_tick_rate)
 	panel.locate_requested.connect(canvas.locate_component)
+	panel.undo_pressed.connect(canvas.do_undo)
+	panel.redo_pressed.connect(canvas.do_redo)
 	panel.display_name_changed.connect(canvas.set_display_name_of)
 	panel.save_pressed.connect(canvas.save_project)
 	panel.load_pressed.connect(canvas.load_project)
@@ -51,5 +53,5 @@ func _ready() -> void:
 	# 先给个能直接看到东西的起点：载入半加器示例
 	canvas.load_example("half_adder")
 
-	get_window().title = "LogicLab 0.1.0 Beta 3"
-	print("LogicLab 0.1.0 Beta 3 就绪：元件库 ", core.library_ids().size(), " 种")
+	get_window().title = "LogicLab 0.1.0 Beta 4"
+	print("LogicLab 0.1.0 Beta 4 就绪：元件库 ", core.library_ids().size(), " 种")

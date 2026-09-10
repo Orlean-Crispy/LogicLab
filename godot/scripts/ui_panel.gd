@@ -15,6 +15,8 @@ signal rotate_pressed()
 signal param_changed(key: String, value: int)
 signal tick_rate_changed(rate: float)
 signal locate_requested(inst: int)
+signal undo_pressed()
+signal redo_pressed()
 signal display_name_changed(id: int, name: String)
 signal save_pressed()
 signal load_pressed()
@@ -114,6 +116,19 @@ func _build_library_panel(root: Control) -> void:
 	_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_list.add_theme_constant_override("separation", 2)
 	scroll.add_child(_list)
+
+	var hist := HBoxContainer.new()
+	box.add_child(hist)
+	var undo_btn := Button.new()
+	undo_btn.text = "撤销 ^Z"
+	undo_btn.add_theme_font_size_override("font_size", 11)
+	undo_btn.pressed.connect(func(): undo_pressed.emit())
+	hist.add_child(undo_btn)
+	var redo_btn := Button.new()
+	redo_btn.text = "重做 ^Y"
+	redo_btn.add_theme_font_size_override("font_size", 11)
+	redo_btn.pressed.connect(func(): redo_pressed.emit())
+	hist.add_child(redo_btn)
 
 	var row := HBoxContainer.new()
 	box.add_child(row)
@@ -341,7 +356,11 @@ func on_selection_changed(id: int) -> void:
 		var cur := int(values[i]) if i < values.size() else 0
 		if kind == 0:
 			_props.add_child(_head_label(label))
-			_props.add_child(_choice_row(key, String(choices[i]), cur))
+			var labels_csv := ""
+			var all_labels = core.param_choice_labels(def_idx)
+			if i < all_labels.size():
+				labels_csv = String(all_labels[i])
+			_props.add_child(_choice_row(key, String(choices[i]), labels_csv, cur))
 		elif kind == 1:
 			_props.add_child(_int_row(key, label, int(lo[i]), int(hi[i]), cur))
 		else:
@@ -359,15 +378,18 @@ func on_selection_changed(id: int) -> void:
 	row.add_child(del)
 
 
-func _choice_row(key: String, choices: String, cur: int) -> HBoxContainer:
+## 档位按钮：值与显示名分开（移位器的"左移/算术右移"不能只显示数字）
+func _choice_row(key: String, choices: String, labels_csv: String, cur: int) -> HBoxContainer:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 2)
-	for part in choices.split(","):
-		if part == "":
+	var values := choices.split(",")
+	var labels := labels_csv.split(",")
+	for i in values.size():
+		if values[i] == "":
 			continue
-		var v := int(part)
+		var v := int(values[i])
 		var b := Button.new()
-		b.text = part
+		b.text = labels[i] if i < labels.size() and labels[i] != "" else values[i]
 		b.toggle_mode = true
 		b.button_pressed = (v == cur)
 		b.add_theme_font_size_override("font_size", 11)
@@ -427,6 +449,11 @@ func _on_check_pressed() -> void:
 	if _issues.item_count == 0:
 		_issues.add_item("（没有发现问题）")
 		_issues.set_item_selectable(0, false)
+
+	# 关键路径（v4 §9.5）：最长组合逻辑路径，单位 tick
+	var cp = core.critical_path()
+	if cp.size() >= 1:
+		_drc_label.text += "\n关键路径：%d 级（含 %d 个组件）" % [int(cp[0]), cp.size() - 1]
 
 	if _drc_label != null:
 		_drc_label.text = "DRC：错误 %d · 警告 %d" % [errors, warnings]

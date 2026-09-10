@@ -9,3 +9,11 @@ members = ["core", "cli", "launcher"]
 default-members = ["core", "cli"]
 # bridge 依赖 gdext（git 依赖），单独构建：cd bridge && cargo build
 exclude = ["bridge"]
+
+# 发布配置放这里（非根的 profile 会被忽略）
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

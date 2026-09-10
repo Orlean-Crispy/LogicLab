@@ -142,6 +142,14 @@ pub struct Annotation {
     pub color: u32,
 }
 
+/// 网络标签：同名即相连，无需物理连线（v4 §8）
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct NetLabel {
+    pub x: i32,
+    pub y: i32,
+    pub name: String,
+}
+
 /// 导线：正交折线（≥2 个点，只保留端点与拐点）
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Wire {
@@ -389,6 +397,8 @@ pub struct Board {
     pub wires: Vec<Wire>,
     #[serde(default)]
     pub annotations: Vec<Annotation>,
+    #[serde(default)]
+    pub labels: Vec<NetLabel>,
 }
 
 impl Board {
@@ -427,6 +437,28 @@ impl Board {
         } else {
             false
         }
+    }
+
+    pub fn add_label(&mut self, x: i32, y: i32, name: &str) -> u32 {
+        self.labels.push(NetLabel { x, y, name: name.to_string() });
+        (self.labels.len() - 1) as u32
+    }
+
+    pub fn remove_label(&mut self, id: u32) -> bool {
+        if (id as usize) < self.labels.len() {
+            self.labels.remove(id as usize);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// 命中测试：落在该格点上的标签
+    pub fn pick_label(&self, x: i32, y: i32) -> Option<u32> {
+        self.labels
+            .iter()
+            .rposition(|l| l.x == x && l.y == y)
+            .map(|i| i as u32)
     }
 
     /// 命中测试：返回落在该格点上的注释
@@ -787,6 +819,31 @@ impl Netlist {
             index.hit(*p, &mut hits);
             for &wj in &hits {
                 uf.union(pi as u32, wire_node(wj as usize));
+            }
+        }
+
+        // 网络标签：同名即相连（v4 §8）。标签落在导线上或引脚上都算。
+        {
+            let mut by_name: HashMap<&str, u32> = HashMap::new();
+            for l in &board.labels {
+                if l.name.is_empty() {
+                    continue;
+                }
+                let at = Point::new(l.x, l.y);
+                index.hit(at, &mut hits);
+                let node = if let Some(&w) = hits.first() {
+                    wire_node(w as usize)
+                } else if let Some(pi) = pin_pos.iter().position(|p| *p == at) {
+                    pi as u32
+                } else {
+                    continue;
+                };
+                match by_name.get(l.name.as_str()) {
+                    Some(&first) => uf.union(node, first),
+                    None => {
+                        by_name.insert(l.name.as_str(), node);
+                    }
+                }
             }
         }
 

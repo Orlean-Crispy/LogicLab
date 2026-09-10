@@ -177,5 +177,62 @@ func _initialize() -> void:
 	_check(c11.set_param(sp, "low_bits", 4), "设低段为 4 位")
 	_check(int(c11.component_info(sp)[9]) == 2, "Splitter 有 2 个输出（LO/HI）")
 
+	print("[15] 撤销 / 重做（v4 ADR-9）")
+	var d1 = LogicLab.new()
+	var init_json := String(d1.save_data())
+	_check(not d1.can_undo(), "初始没有可撤销的操作")
+	d1.add_component("and", 0, 0)
+	d1.add_component("or", 8, 0)
+	d1.add_annotation(2, 2, "注")
+	_check(d1.can_undo(), "编辑后可撤销")
+	_check(d1.undo() and d1.undo() and d1.undo(), "连续撤销三步")
+	_check(not d1.can_undo(), "到底了")
+	_check(String(d1.save_data()) == init_json, "全量撤销应回到初始态")
+	_check(d1.redo() and d1.redo() and d1.redo(), "连续重做三步")
+	_check(not d1.can_redo(), "重做到头了")
+
+	print("[16] 网络标签（v4 §8）")
+	var d2 = LogicLab.new()
+	var s2: int = d2.add_component("switch", 0, 0)
+	var l2: int = d2.add_component("led", 40, 0)
+	d2.connect_pins(s2, 0, l2, 0)
+	var lid: int = d2.add_label(6, 0, "BUS")
+	_check(lid == 0, "插入标签")
+	_check(String(d2.label_names()[0]) == "BUS", "标签名正确")
+	_check(d2.pick_label(6, 0) == 0, "命中标签")
+	d2.set_label_name(lid, "CLK")
+	_check(String(d2.label_names()[0]) == "CLK", "标签名可改")
+
+	print("[17] 关键路径（v4 §9.5）")
+	var d3 = LogicLab.new()
+	d3.load_example("shift_reg")
+	var cp = d3.critical_path()
+	_check(cp.size() >= 2, "无环电路能给出关键路径（%d 级）" % int(cp[0]) if cp.size() > 0 else "无")
+	var d4 = LogicLab.new()
+	d4.load_example("sr_latch")
+	_check(d4.critical_path().size() == 0, "有组合环时不给关键路径")
+
+	print("[18] 门控时钟警告（v4 §9.5）")
+	var d5 = LogicLab.new()
+	var g5: int = d5.add_component("and", 0, 0)
+	var r5: int = d5.add_component("register", 20, 0)
+	d5.connect_pins(g5, 2, r5, 1)
+	var kinds = d5.drc_issues()
+	var has_gated := false
+	var k5 := 0
+	while k5 + 3 < kinds.size():
+		if int(kinds[k5]) == 4:
+			has_gated = true
+		k5 += 4
+	_check(has_gated, "用逻辑门驱动时钟脚 → 门控时钟警告")
+
+	print("[19] 移位器三模式（v4 §6.4）")
+	var d6 = LogicLab.new()
+	var sh: int = d6.add_component("shifter", 0, 0)
+	var sh_info = d6.component_info(sh)
+	var sh_keys = d6.param_keys(int(sh_info[0]))
+	_check(sh_keys.has("mode"), "移位器暴露 mode 参数")
+	_check(d6.set_param(sh, "mode", 2), "设为算术右移")
+
 	print("=== %s ===" % ("全部通过" if _fails == 0 else "%d 项失败" % _fails))
 	quit(0 if _fails == 0 else 1)
