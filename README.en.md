@@ -154,6 +154,21 @@ Work follows the milestones of [spec v4](docs/logic-sandbox-spec-v4.md); item-by
 The end goal is to tick all seven acceptance criteria of spec §15. The two sharpest are: **a self-built CPU + UART
 running a real program with conditional jumps**, and **any exported Verilog being accepted by both iverilog and Yosys**.
 
+## On AI-assisted development
+
+This project makes **heavy use of AI-assisted development**, and the division of labour is stated plainly:
+
+| Stage | Led by |
+|---|---|
+| Product positioning and spec | A human (performance first, ARM64 must run, TC sandbox as the target to match, the Checkpoint versioning scheme) |
+| Architecture and decisions | Discussed between human and AI, decided by the human (core and shell fully separated, edit-resets-simulation, elaboration kept on the editing side) |
+| Implementation | An AI coding agent (Rust core, GDExtension bridge, GDScript shell, tests and docs) |
+| Acceptance | Executable tests and benchmarks (core unit tests, headless smoke tests, performance benchmark all green) |
+
+There is no intention to dress this up as something else. What makes a project in its testing phase worth a look
+is not who typed the code, but whether its tests go green and whether its numbers reproduce — both are in this
+repository, ready to be checked by anyone.
+
 ## License
 
 [MIT](LICENSE) © 2026 Orlean-Crispy
