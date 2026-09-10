@@ -165,6 +165,21 @@ running a real program with conditional jumps**, and **any exported Verilog bein
 Room has been left in the architecture: `core` and `cli` are pure Rust with no engine types, so a new platform needs
 no changes to the kernel — only the packaging and export flow. The table above is therefore a scheduling matter, not a capability limit.
 
+### On the long-term dependence on Godot
+
+`core` has contained no engine types since day one, and `view.rs` only produces shell-agnostic presentation data —
+that constraint exists precisely so that "swapping the shell leaves the core untouched". Leaving Godot behind is
+therefore architecturally feasible; it is simply not a current priority:
+
+| Route | Gain | Cost |
+|---|---|---|
+| Self-compiled, trimmed Godot (3D / physics / navigation / XR modules off) | Single file 44 MB → about 25 MB | Needs an scons + Python toolchain, one build per architecture; every Godot upgrade means rebuilding |
+| Swap in a pure-Rust shell (winit + custom-drawn UI) | Single file about 5–10 MB, builds entirely through cargo | The whole UI layer and interaction must be rewritten; `core` / `cli` / `view` carry over unchanged |
+
+The judgement is **not to bother yet**: the bottleneck right now is feature completeness (testbench, Verilog export,
+machine building), not size or dependencies. This gets re-evaluated once M5 wraps up and P1 features are being
+scheduled — if size or distribution has become a real obstacle by then, both routes above are still open.
+
 ## On AI-assisted development
 
 This project makes **heavy use of AI-assisted development**, and the division of labour is stated plainly:
