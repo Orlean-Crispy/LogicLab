@@ -50,10 +50,6 @@ static func _apply_node(n: Node) -> void:
 			ob.set_item_text(i, t(ob.get_item_text(i)))
 	elif n is AcceptDialog:
 		_swap(n, "title")
-	elif n is LineEdit:
-		var le := n as LineEdit
-		if le.placeholder_text != "":
-			_swap(le, "placeholder_text")
 
 
 ## 不能叫 _set：那是 Object 的内建虚函数，签名对不上会直接报错
