@@ -5,18 +5,18 @@
 > 版本留档：`releases/{X86,ARM64}/`，命名 `LogicLab-<版本>-<架构>.exe`
 > 远 端：https://github.com/Orlean-Crispy/LogicLab
 
-## 1. 当前状态：0.2.0 Checkpoint 1
+## 1. 当前状态：0.2.0 Checkpoint 1 Hotfix
 
 > 版本命名说明：项目整体处于测试期，不用 alpha/beta 这类希腊字母后缀，
 > 改用 **Checkpoint**（检查点）——每次攒够一批功能就封一个检查点，语义中性、可无限延续。
 
 | 部分 | 状态 |
 |---|---|
-| `core`（纯 Rust，零引擎依赖） | **94** 个单测全绿 |
+| `core`（纯 Rust，零引擎依赖） | **98** 个单测全绿 |
 | `cli`（headless 命令行） | components / schema / demo / example / info / run / bench |
 | `bridge`（gdext 薄桥） | 基于 Session，x64 + arm64 |
 | Godot 壳 | GUI 与 headless 均启动无错 |
-| 回归 `godot/tests/smoke.gd` | **116** 项全通过 |
+| 回归 `godot/tests/smoke.gd` | **119** 项全通过 |
 
 **沙盒功能已具备**：放置/拖动/旋转/删除/**撤销重做**/连线（自动避让）/开关/参数编辑/
 文本注释/**网络标签**/平移缩放/单步运行调速/存取/DRC 与双击定位/关键路径/悬停探针/
