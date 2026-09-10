@@ -1307,27 +1307,39 @@ mod tests {
         outs[0]
     }
 
+    /// **全部 8 种门 × 全部输入组合**，逐一对照「把输入当布尔值再套布尔运算」的参考结果。
+    ///
+    /// 刻意穷举而不是挑几个用例：门的语义错一位，随机用例可能很久都撞不上。
     #[test]
     fn gates_cover_all_input_combinations() {
-        let p = DefId::And.default_params().inputs(3).width(1);
-        for mask in 0u32..8 {
-            let ins: Vec<NetValue> = (0..3)
-                .map(|i| NetValue::from_bit(mask & (1 << i) != 0))
-                .collect();
-            let bit = |i: usize| ins[i].get(1) != 0;
-            assert_eq!(
-                one(DefId::And, &p, &ins).get(1),
-                u32::from(bit(0) && bit(1) && bit(2))
-            );
-            assert_eq!(
-                one(DefId::Nand, &p, &ins).get(1),
-                u32::from(!(bit(0) && bit(1) && bit(2)))
-            );
-            assert_eq!(
-                one(DefId::Or, &p, &ins).get(1),
-                u32::from(bit(0) || bit(1) || bit(2))
-            );
-            assert_eq!(one(DefId::Xor, &p, &ins).get(1), (mask.count_ones() % 2 != 0) as u32);
+        for n in 2..=3u8 {
+            let p = DefId::And.default_params().inputs(n).width(1);
+            for mask in 0u32..(1 << n) {
+                let ins: Vec<NetValue> = (0..n)
+                    .map(|i| NetValue::from_bit(mask & (1 << i) != 0))
+                    .collect();
+                let bit = |i: usize| ins[i].get(1) != 0;
+                let all = (0..n as usize).all(bit);
+                let any = (0..n as usize).any(bit);
+                let odd = (0..n as usize).filter(|&i| bit(i)).count() % 2 == 1;
+                for (def, want) in [
+                    (DefId::And, all),
+                    (DefId::Nand, !all),
+                    (DefId::Or, any),
+                    (DefId::Nor, !any),
+                    (DefId::Xor, odd),
+                    (DefId::Xnor, !odd),
+                ] {
+                    assert_eq!(
+                        one(def, &p, &ins).get(1),
+                        u32::from(want),
+                        "{def:?} 在 n={n} mask={mask:b} 上出错"
+                    );
+                }
+                // 单输入门只看第一个输入
+                assert_eq!(one(DefId::Not, &p, &ins[..1]).get(1), u32::from(!bit(0)));
+                assert_eq!(one(DefId::Buffer, &p, &ins[..1]).get(1), u32::from(bit(0)));
+            }
         }
     }
 

@@ -771,4 +771,57 @@ mod tests {
         e.run_for(4);
         assert_eq!(e.instance_output(ram, 0).get(8), 0x5A);
     }
+
+    /// 每个内置组件都要能走完「放板 → 网表推导 → 引擎装载 → 逐拍求值」这条链。
+    ///
+    /// defs.rs 的求值测试直接调 eval()，绕过了引脚布局、网表推导与引擎装载。
+    /// 这条测试补的正是那一段：哪个组件在这条链上炸掉，这里会先炸。
+    #[test]
+    fn every_component_survives_the_engine() {
+        for &def in DefId::ALL {
+            let p = def.default_params();
+            let mut b = Board::new();
+            let id = b.add_instance(def, p, 20, 20);
+            let ins = def.in_count(&p);
+            let outs = def.out_count(&p);
+            assert_eq!(
+                b.instances[id as usize].pins.len(),
+                ins + outs,
+                "{def:?} 的引脚布局与 in/out 计数不一致"
+            );
+
+            // 每个输入接一个常量源，每个输出接一个探针
+            for slot in 0..ins {
+                let w = b.instances[id as usize].pins[slot].width;
+                let src = b.add_instance(
+                    DefId::Constant,
+                    Params::default().width(w as u32),
+                    0,
+                    slot as i32 * 4,
+                );
+                b.connect_pins((src, 0), (id, slot));
+            }
+            for k in 0..outs {
+                let slot = ins + k;
+                let w = b.instances[id as usize].pins[slot].width;
+                let probe = b.add_instance(
+                    DefId::Led,
+                    Params::default().width(w as u32),
+                    60,
+                    k as i32 * 4,
+                );
+                b.connect_pins((id, slot), (probe, 0));
+            }
+
+            let mut e = Engine::new();
+            e.load_board(&b);
+            e.run_for(16); // 时钟类组件要跑够拍数才翻高
+            if ins + outs > 0 {
+                assert!(e.net_count() > 0, "{def:?} 没有推导出任何网络");
+            }
+            if !def.is_passive() {
+                assert!(e.component_count() > 0, "{def:?} 没有产生运行时组件");
+            }
+        }
+    }
 }
