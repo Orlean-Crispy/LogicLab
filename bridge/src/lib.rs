@@ -678,13 +678,19 @@ impl LogicLab {
     }
 
     #[func]
-    fn example_names(&self) -> PackedStringArray {
-        examples::ALL.iter().map(|e| GString::from(e.name)).collect()
+    fn example_names(&self, lang: i32) -> PackedStringArray {
+        examples::ALL
+            .iter()
+            .map(|e| GString::from(if lang == 0 { e.name } else { e.name_en }))
+            .collect()
     }
 
     #[func]
-    fn example_notes(&self) -> PackedStringArray {
-        examples::ALL.iter().map(|e| GString::from(e.note)).collect()
+    fn example_notes(&self, lang: i32) -> PackedStringArray {
+        examples::ALL
+            .iter()
+            .map(|e| GString::from(if lang == 0 { e.note } else { e.note_en }))
+            .collect()
     }
 
     /// 某组件可改参数的个数（UI 判断是否显示参数区）
@@ -718,8 +724,12 @@ impl LogicLab {
 
     /// 全部图纸名
     #[func]
-    fn board_names(&self) -> PackedStringArray {
-        self.session.board_names().iter().map(|s| GString::from(s.as_str())).collect()
+    fn board_names(&self, lang: i32) -> PackedStringArray {
+        self.session
+            .board_names(lang.max(0) as u32)
+            .iter()
+            .map(|s| GString::from(s.as_str()))
+            .collect()
     }
 
     /// 当前编辑的图纸索引
@@ -730,8 +740,12 @@ impl LogicLab {
 
     /// 从根到当前图纸的面包屑（图纸名）
     #[func]
-    fn breadcrumb(&self) -> PackedStringArray {
-        self.session.breadcrumb().iter().map(|s| GString::from(s.as_str())).collect()
+    fn breadcrumb(&self, lang: i32) -> PackedStringArray {
+        self.session
+            .breadcrumb(lang.max(0) as u32)
+            .iter()
+            .map(|s| GString::from(s.as_str()))
+            .collect()
     }
 
     /// 当前处在第几层（0 = 根图纸）

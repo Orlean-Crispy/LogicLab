@@ -14,7 +14,11 @@ use crate::save::Project;
 pub struct Example {
     pub id: &'static str,
     pub name: &'static str,
+    /// 英文名与说明。内置内容属于「程序自带的东西」，跟着界面语言走；
+    /// 用户自己改过名的图纸不受影响（Board::name_en 留空即回落原名）。
+    pub name_en: &'static str,
     pub note: &'static str,
+    pub note_en: &'static str,
     pub build: fn() -> Project,
 }
 
@@ -23,44 +27,58 @@ pub const ALL: &[Example] = &[
     Example {
         id: "half_adder",
         name: "NAND 半加器",
+        name_en: "NAND Half Adder",
         note: "5 个 NAND 搭出 S=A⊕B 与 C=A·B；拨动两个开关看真值表",
-        build: || one("NAND 半加器", half_adder()),
+        note_en: "Five NANDs give S = A xor B and C = A and B; flip the two switches to walk the truth table",
+        build: || one("NAND 半加器", "NAND Half Adder", half_adder()),
     },
     Example {
         id: "full_adder",
         name: "层次全加器",
+        name_en: "Hierarchical Full Adder",
         note: "把半加器封装成自定义元件，再用两个半加器 + 一个 OR 搭出全加器（双击实例进入子电路）",
+        note_en: "Wrap a half adder into a custom component, then build a full adder from two of them plus an OR (double-click an instance to look inside)",
         build: full_adder,
     },
     Example {
         id: "sr_latch",
         name: "NAND 锁存器",
+        name_en: "NAND Latch",
         note: "低有效置位/复位，松开后自锁保持（组合反馈，导出 Verilog 前需改造）",
-        build: || one("NAND 锁存器", sr_latch()),
+        note_en: "Active-low set/reset; release both and it latches (combinational feedback, needs rework before Verilog export)",
+        build: || one("NAND 锁存器", "NAND Latch", sr_latch()),
     },
     Example {
         id: "shift_reg",
         name: "三级移位寄存器",
+        name_en: "3-Stage Shift Register",
         note: "每个时钟上升沿把数据往后推一级",
-        build: || one("三级移位寄存器", shift_reg()),
+        note_en: "Each rising clock edge pushes the data one stage further",
+        build: || one("三级移位寄存器", "3-Stage Shift Register", shift_reg()),
     },
     Example {
         id: "counter4",
         name: "4 位计数器",
+        name_en: "4-Bit Counter",
         note: "8 位计数器，经 Splitter 拆成高/低两个 4 位探针",
-        build: || one("4 位计数器", counter4()),
+        note_en: "An 8-bit counter split by a Splitter into two 4-bit probes",
+        build: || one("4 位计数器", "4-Bit Counter", counter4()),
     },
     Example {
         id: "counter_display",
         name: "计数器 + 外设",
+        name_en: "Counter + Peripherals",
         note: "同一个计数器同时驱动数码管与 8×8 点阵屏（地址 + 数据 + 写使能）",
-        build: || one("计数器 + 外设", counter_display()),
+        note_en: "One counter driving both a 7-segment display and an 8x8 dot-matrix screen (address + data + write enable)",
+        build: || one("计数器 + 外设", "Counter + Peripherals", counter_display()),
     },
     Example {
         id: "mux2",
         name: "2 选 1 数据选择器",
+        name_en: "2-to-1 Multiplexer",
         note: "MUX 用选择脚在两个字节间切换",
-        build: || one("2 选 1 数据选择器", mux2()),
+        note_en: "A MUX switches between two byte sources with one select pin",
+        build: || one("2 选 1 数据选择器", "2-to-1 Multiplexer", mux2()),
     },
 ];
 
@@ -75,10 +93,11 @@ pub fn ids() -> Vec<&'static str> {
 }
 
 /// 单图纸工程的便捷构造
-fn one(name: &str, board: Board) -> Project {
+fn one(name: &str, name_en: &str, board: Board) -> Project {
     let mut p = Project::new(name);
     let mut b = board;
     b.name = name.to_string();
+    b.name_en = name_en.to_string();
     p.add_board(b);
     p
 }
@@ -133,6 +152,7 @@ fn half_adder() -> Board {
 fn half_adder_cell() -> Board {
     let mut b = Board::new();
     b.name = "半加器".to_string();
+    b.name_en = "Half Adder".to_string();
     let a = b.add_instance(DefId::InputPin, sw1(), 0, 0);
     let bb = b.add_instance(DefId::InputPin, sw1(), 0, 6);
     b.instances[a as usize].display_name = "A".to_string();
@@ -171,6 +191,7 @@ fn full_adder() -> Project {
 
     let mut root = Board::new();
     root.name = "全加器".to_string();
+    root.name_en = "Full Adder".to_string();
     let sa = root.add_instance(DefId::Switch, sw1(), 0, 0);
     let sb = root.add_instance(DefId::Switch, sw1(), 0, 8);
     let sc = root.add_instance(DefId::Switch, sw1(), 0, 16);

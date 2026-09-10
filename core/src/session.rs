@@ -151,7 +151,7 @@ impl Session {
 
     /// 层级调试路径（ADR-25）：图纸名 / 实例名 / 引脚名
     pub fn hierarchy_path(&self, inst: u32, pin: &str) -> String {
-        let mut parts = self.breadcrumb();
+        let mut parts = self.breadcrumb(0);
         parts.push(self.board().instance_name(inst).unwrap_or("?").to_string());
         parts.push(pin.to_string());
         parts.join("/")
@@ -178,10 +178,10 @@ impl Session {
     }
 
     /// 从根到当前图纸的路径（图纸名）
-    pub fn breadcrumb(&self) -> Vec<String> {
+    pub fn breadcrumb(&self, lang: u32) -> Vec<String> {
         self.path_boards()
             .iter()
-            .map(|&b| self.project.boards[b as usize].name.clone())
+            .map(|&b| self.board_label(b, lang))
             .collect()
     }
 
@@ -190,9 +190,34 @@ impl Session {
         self.path.len()
     }
 
+    /// 图纸显示名：英文模式下优先用 name_en，没有就回落原名
+    pub fn board_label(&self, idx: u32, lang: u32) -> String {
+        let Some(b) = self.project.boards.get(idx as usize) else {
+            return String::new();
+        };
+        if lang == 0 {
+            return b.name.clone();
+        }
+        if !b.name_en.is_empty() {
+            return b.name_en.clone();
+        }
+        // 程序自己补的默认名也给一份英文；用户起过的名字原样返回——
+        // 界面语言不该改写用户的数据。
+        match b.name.as_str() {
+            "主图纸" => "Main".to_string(),
+            "子电路" => "Sub-circuit".to_string(),
+            other => match other.strip_prefix("图纸") {
+                Some(n) => format!("Sheet {n}"),
+                None => b.name.clone(),
+            },
+        }
+    }
+
     /// 全部图纸名（图纸库用）
-    pub fn board_names(&self) -> Vec<String> {
-        self.project.boards.iter().map(|b| b.name.clone()).collect()
+    pub fn board_names(&self, lang: u32) -> Vec<String> {
+        (0..self.project.boards.len() as u32)
+            .map(|i| self.board_label(i, lang))
+            .collect()
     }
 
     /// 某张图纸被引用了几次
@@ -1185,7 +1210,7 @@ mod tests {
         assert_eq!(s.depth(), 0);
         assert!(s.enter_sub(inst));
         assert_eq!(s.depth(), 1);
-        assert_eq!(s.breadcrumb(), vec!["主图纸", "反相器"]);
+        assert_eq!(s.breadcrumb(0), vec!["主图纸", "反相器"]);
         assert_eq!(s.board().name, "反相器");
         assert!(s.goto_depth(0));
         assert_eq!(s.board().name, "主图纸");

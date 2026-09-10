@@ -31,6 +31,13 @@ static func t(zh: String) -> String:
 	return String(EN_TABLE.get(zh, zh))
 
 
+## 带占位符的模板必须先翻译、再格式化。
+## 表里的 key 是模板本身，直接 t(「已经格式化好的字符串」) 一个都查不到——
+## 这正是带数字的状态栏一直翻不过来的原因。
+static func tf(zh: String, args: Array) -> String:
+	return t(zh) % args
+
+
 ## 静态 UI：把一棵控件树里所有可见文本换成当前语言。
 ## 原文缓存在 meta 里，所以中英来回切都能还原（前提是代码没有在别处直接改 text）。
 static func apply(root: Node) -> void:
@@ -42,12 +49,17 @@ static func apply(root: Node) -> void:
 
 
 static func _apply_node(n: Node) -> void:
-	if n is Label or n is Button or n is CheckBox:
-		_swap(n, "text")
-	elif n is OptionButton:
+	# 语言开关自己管自己的文字，被这里替换一次就会锁死在 meta 缓存上
+	if n.has_meta("no_i18n"):
+		return
+	# OptionButton 继承自 Button，这个分支必须排在前面：
+	# 否则会走 Button 那条路，只翻译「当前选中项」，下拉里的其余条目永远不翻。
+	if n is OptionButton:
 		var ob := n as OptionButton
 		for i in ob.item_count:
 			ob.set_item_text(i, t(ob.get_item_text(i)))
+	elif n is Label or n is Button or n is CheckBox:
+		_swap(n, "text")
 	elif n is AcceptDialog:
 		_swap(n, "title")
 

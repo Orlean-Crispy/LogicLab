@@ -23,11 +23,20 @@ signal display_name_changed(id: int, name: String)
 signal save_pressed()
 signal load_pressed()
 signal clear_pressed()
+signal language_toggled()
 
 const PANEL_BG := Color(0.10, 0.11, 0.14, 0.94)
 const HEAD := Color(0.58, 0.65, 0.75)
 
+## 左右侧栏宽度。导航条与底部条都要据此避让——
+## 用「水平居中」定位在宽窗口下必然和右上角的属性面板撞上（实测过）。
+const LIB_W := 218.0
+const PROPS_W := 238.0
+
 var core = null
+
+var _lang_btn: Button
+var _bottom: PanelContainer
 
 var _lib_ids := PackedStringArray()
 var _lib_labels := PackedStringArray()
@@ -53,6 +62,12 @@ func _ready() -> void:
 	_build_bottom_bar(root)
 	_build_props_panel(root)
 
+	# 这三个是运行时动态刷新的文本（带数字、每次不同），各自在设置处翻译。
+	# 交给控件树遍历只会把「格式化后的中文」缓存进 meta，之后再切语言就永远翻不动。
+	for n in [_status, _stats, _drc_label]:
+		if n != null:
+			n.set_meta("no_i18n", true)
+
 
 func _panel_style() -> StyleBoxFlat:
 	var sb := StyleBoxFlat.new()
@@ -64,9 +79,11 @@ func _panel_style() -> StyleBoxFlat:
 	return sb
 
 
+## 标题与提示都从这两个工厂出来，翻译收在这里，
+## 于是各面板重建控件时不必各自记得包一层。
 func _head_label(text: String) -> Label:
 	var l := Label.new()
-	l.text = text
+	l.text = I18n.t(text)
 	l.add_theme_font_size_override("font_size", 11)
 	l.add_theme_color_override("font_color", HEAD)
 	return l
@@ -74,7 +91,7 @@ func _head_label(text: String) -> Label:
 
 func _hint(text: String) -> Label:
 	var l := Label.new()
-	l.text = text
+	l.text = I18n.t(text)
 	l.add_theme_font_size_override("font_size", 11)
 	l.add_theme_color_override("font_color", Color(0.5, 0.56, 0.64))
 	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -95,11 +112,24 @@ func _build_library_panel(root: Control) -> void:
 	box.add_theme_constant_override("separation", 4)
 	panel.add_child(box)
 
+	# 标题行右侧放语言开关：这是用户第一眼看的地方，藏在顶部导航条最右端根本找不到
+	var title_row := HBoxContainer.new()
 	var title := Label.new()
 	title.text = "LogicLab"
 	title.add_theme_font_size_override("font_size", 18)
 	title.add_theme_color_override("font_color", Color(0.90, 0.92, 0.96))
-	box.add_child(title)
+	title_row.add_child(title)
+	var gap := Control.new()
+	gap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	title_row.add_child(gap)
+	_lang_btn = Button.new()
+	_lang_btn.add_theme_font_size_override("font_size", 12)
+	_lang_btn.tooltip_text = "切换界面语言 / Switch language"
+	_lang_btn.set_meta("no_i18n", true)   # 别让控件树遍历覆盖它的文字
+	_lang_btn.pressed.connect(func() -> void: language_toggled.emit())
+	title_row.add_child(_lang_btn)
+	box.add_child(title_row)
+	_update_lang_btn()
 
 	# 示例电路：点一下就能看到能跑的电路长什么样
 	box.add_child(_head_label("示例电路"))
@@ -162,14 +192,12 @@ func _build_library_panel(root: Control) -> void:
 
 
 func _build_bottom_bar(root: Control) -> void:
-	var panel := PanelContainer.new()
-	panel.add_theme_stylebox_override("panel", _panel_style())
-	panel.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
-	panel.offset_left = -270
-	panel.offset_right = 270
-	panel.offset_top = -54
-	panel.offset_bottom = -10
-	root.add_child(panel)
+	_bottom = PanelContainer.new()
+	_bottom.add_theme_stylebox_override("panel", _panel_style())
+	root.add_child(_bottom)
+	get_viewport().size_changed.connect(_layout_bottom)
+	_layout_bottom()
+	var panel := _bottom
 
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 6)
@@ -275,9 +303,9 @@ func build_library(c) -> void:
 		btn.pressed.connect(func(): library_selected.emit(def_id))
 		_list.add_child(btn)
 
-	var names = c.example_names()
+	var names = c.example_names(I18n.lang)
 	var ids = c.example_ids()
-	var notes = c.example_notes()
+	var notes = c.example_notes(I18n.lang)
 	_example_picker.clear()
 	_example_picker.add_item("（选择示例…）", 0)
 	for i in names.size():
@@ -288,6 +316,9 @@ func build_library(c) -> void:
 			if idx > 0:
 				example_selected.emit(String(ids[idx - 1]))
 	)
+	# 新建的控件还没进过替换流程；old 节点要等帧末才真正释放，所以这里连着旧的一起处理也无妨
+	I18n.apply(_list)
+	I18n.apply(_example_picker)
 
 
 # ---------------------------------------------------------------------------
@@ -296,6 +327,32 @@ func build_library(c) -> void:
 
 ## 状态消息统一在这里翻译：所有提示都从这里过一道，
 ## 于是画布里那几十处 emit 不必各自记得包一层。
+## 语言开关上的字写的是「点了会切到哪种语言」，比写当前语言少一层理解成本
+func _update_lang_btn() -> void:
+	if _lang_btn != null:
+		_lang_btn.text = "中文" if I18n.is_en() else "🌐 English"
+
+
+## 底部条在左右侧栏之间居中；窗口变窄时它跟着收窄，绝不压到侧栏上
+func _layout_bottom() -> void:
+	var vp := get_viewport().get_visible_rect().size
+	var avail := maxf(300.0, vp.x - LIB_W - PROPS_W - 20.0)
+	var w := minf(560.0, avail)
+	_bottom.size = Vector2(w, _bottom.get_combined_minimum_size().y)
+	_bottom.position = Vector2(LIB_W + 10.0 + (avail - w) * 0.5, vp.y - _bottom.size.y - 10.0)
+
+
+## 语言切换后重做一遍依赖 core 标签的部分：元件库、示例下拉、语言按钮本体
+func retranslate() -> void:
+	if core != null:
+		build_library(core)
+	_update_lang_btn()
+	# 状态栏里存的是上一次操作的旧消息，切语言不会重算它，直接回落到「就绪」
+	if _status != null:
+		_status.text = I18n.t("就绪")
+	I18n.apply(self)
+
+
 func set_status(text: String) -> void:
 	text = I18n.t(text)
 	if _status != null:
@@ -304,11 +361,11 @@ func set_status(text: String) -> void:
 
 func set_stats(text: String) -> void:
 	if _stats != null:
-		_stats.text = text
+		_stats.text = I18n.t(text)
 
 
 func _on_run_toggled(pressed: bool) -> void:
-	_run_btn.text = "暂停" if pressed else "运行"
+	_run_btn.text = I18n.t("暂停") if pressed else I18n.t("运行")
 	run_toggled.emit(pressed)
 
 
@@ -458,12 +515,12 @@ func _on_check_pressed() -> void:
 	# 关键路径（v4 §9.5）：最长组合逻辑路径，单位 tick
 	var cp = core.critical_path()
 	if cp.size() >= 1:
-		_drc_label.text += "\n关键路径：%d 级（含 %d 个组件）" % [int(cp[0]), cp.size() - 1]
+		_drc_label.text += I18n.tf("\n关键路径：%d 级（含 %d 个组件）", [int(cp[0]), cp.size() - 1])
 
 	if _drc_label != null:
 		var total_errors := 0
 		var total_warnings := 0
-		var board_total: int = int(core.board_names().size())
+		var board_total: int = int(core.board_names(I18n.lang).size())
 		if board_total > 1:
 			var kinds = core.drc_all_kinds()
 			var ki := 0
@@ -475,14 +532,14 @@ func _on_check_pressed() -> void:
 				ki += 3
 		var scope := ""
 		if board_total > 1:
-			scope = "  ·  全工程 %d 错 %d 警（%d 张图纸）" % [total_errors, total_warnings, board_total]
-		_drc_label.text = "本图纸 %d 错 · %d 警%s" % [errors, warnings, scope]
+			scope = I18n.tf("  ·  全工程 %d 错 %d 警（%d 张图纸）", [total_errors, total_warnings, board_total])
+		_drc_label.text = I18n.tf("本图纸 %d 错 · %d 警%s", [errors, warnings, scope])
 		_drc_label.add_theme_color_override(
 			"font_color",
 			Color(0.95, 0.45, 0.45) if errors > 0 else (Color(0.9, 0.78, 0.35) if warnings > 0 else Color(0.45, 0.85, 0.55))
 		)
 
-	var text := "错误 %d · 警告 %d\n\n" % [errors, warnings]
+	var text := I18n.tf("错误 %d · 警告 %d\n\n", [errors, warnings])
 	if details.size() == 0:
 		text += "没有发现问题。"
 	else:
@@ -490,7 +547,7 @@ func _on_check_pressed() -> void:
 		for i in limit:
 			text += "· %s\n" % details[i]
 		if details.size() > limit:
-			text += "… 另有 %d 条未显示" % (details.size() - limit)
+			text += I18n.t("… 另有 %d 条未显示") % (details.size() - limit)
 
 	var dlg := AcceptDialog.new()
 	dlg.title = "设计规则检查"

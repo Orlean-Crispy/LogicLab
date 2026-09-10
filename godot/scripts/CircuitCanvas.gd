@@ -117,7 +117,7 @@ func refresh() -> void:
 	ann_texts = core.annotation_texts()
 	label_pos = core.labels()
 	label_names = core.label_names()
-	sub_names = core.board_names()
+	sub_names = core.board_names(I18n.lang)
 	if lib_labels.is_empty():
 		lib_labels = core.library_labels(I18n.lang)
 		lib_cats = core.library_category_codes()
@@ -196,8 +196,10 @@ func _emit_stats() -> void:
 	var s = core.stats()
 	if s.size() >= 8:
 		stats_changed.emit(
-			"tick %d · 元件 %d · 导线 %d · 网络 %d · 本拍求值 %d"
-			% [int(s[5]), int(s[0]), int(s[4]), int(s[2]), int(s[6])]
+			I18n.tf(
+				"tick %d · 元件 %d · 导线 %d · 网络 %d · 本拍求值 %d",
+				[int(s[5]), int(s[0]), int(s[4]), int(s[2]), int(s[6])]
+			)
 		)
 
 
@@ -788,12 +790,12 @@ func do_redo() -> void:
 
 func _apply_history(ok: bool, what: String) -> void:
 	if not ok:
-		status_changed.emit("没有可%s的操作" % what)
+		status_changed.emit(I18n.t("没有可%s的操作") % what)
 		return
 	selected = -1
 	selection_changed.emit(-1)
 	refresh()
-	status_changed.emit("已%s" % what)
+	status_changed.emit(I18n.t("已%s") % what)
 
 
 ## 从 DRC 列表定位到某个组件（v4 §8：双击条目定位并高亮）
@@ -807,7 +809,7 @@ func locate_component(id: int) -> void:
 		view_offset = Vector2(float(info[5]) + 1.0, float(info[6]) + 1.0)
 		if zoom < 1.5:
 			zoom = 1.5
-	status_changed.emit("已定位到 %s" % core.instance_name(id))
+	status_changed.emit(I18n.t("已定位到 %s") % core.instance_name(id))
 	queue_redraw()
 
 
@@ -845,7 +847,7 @@ func center_on_content() -> void:
 
 func set_pending_def(def_id: String) -> void:
 	pending_def = def_id
-	status_changed.emit("点击画布放置：%s（Esc 取消）" % def_id)
+	status_changed.emit(I18n.t("点击画布放置：%s（Esc 取消）") % def_id)
 
 
 func do_tick() -> void:
@@ -876,7 +878,7 @@ func delete_selected() -> void:
 		return
 	core.remove_components(PackedInt32Array(sel))
 	set_selection([])
-	status_changed.emit("已删除 %d 个元件" % sel.size())
+	status_changed.emit(I18n.t("已删除 %d 个元件") % sel.size())
 	queue_redraw()
 
 
@@ -890,7 +892,7 @@ func rotate_selected() -> void:
 func set_display_name_of(id: int, name: String) -> void:
 	if id >= 0 and name != "":
 		core.set_display_name(id, name)
-		status_changed.emit("实例名已改为 %s" % name)
+		status_changed.emit(I18n.t("实例名已改为 %s") % name)
 
 
 func set_selected_param(key: String, value: int) -> void:
@@ -906,7 +908,7 @@ func load_example(example_id: String) -> void:
 	set_selection([])
 	refresh()
 	center_on_content()
-	status_changed.emit("已载入示例：%s" % example_id)
+	status_changed.emit(I18n.t("已载入示例：%s") % example_id)
 
 
 func save_project() -> void:
@@ -999,7 +1001,7 @@ func _commit_box_select() -> void:
 		set_selection(sel)
 	else:
 		set_selection(found)
-	status_changed.emit("选中 %d 个元件" % selected_ids().size())
+	status_changed.emit(I18n.t("选中 %d 个元件") % selected_ids().size())
 
 
 ## 把当前选区封装成子电路；返回新图纸索引，失败返回 -1
@@ -1015,12 +1017,9 @@ func extract_selection(cname: String) -> int:
 	set_selection([])
 	refresh()
 	center_on_content()
-	status_changed.emit("已封装为子电路：%s" % cname)
+	status_changed.emit(I18n.t("已封装为子电路：%s") % cname)
 	return idx
 
-
-func selection_size() -> int:
-	return selected_ids().size()
 
 
 ## 观察 / 取消观察鼠标下的导线（§9.1）。波形由 core 逐拍采样，壳只负责画。
@@ -1038,10 +1037,10 @@ func toggle_watch_at_mouse() -> void:
 		return
 	var nm := "n%d" % net
 	if core.wave_watch(net, nm):
-		status_changed.emit("已观察 %s" % nm)
+		status_changed.emit(I18n.t("已观察 %s") % nm)
 	else:
 		core.wave_unwatch(net)
-		status_changed.emit("已取消观察 %s" % nm)
+		status_changed.emit(I18n.t("已取消观察 %s") % nm)
 	wave_changed.emit()
 	queue_redraw()
 

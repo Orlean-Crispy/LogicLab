@@ -58,7 +58,7 @@ func _draw() -> void:
 			break
 		var samples: PackedInt64Array = core.wave_samples(r)
 		var bits := int(traces[r * 3 + 1]) if r * 3 + 1 < traces.size() else 1
-		var label := "%s  [%d 位]" % [String(names[r]), bits] if bits > 1 else String(names[r])
+		var label := I18n.tf("%s  [%d 位]", [String(names[r]), bits]) if bits > 1 else String(names[r])
 		draw_string(_font, Vector2(8.0, y0 + 14.0), label, HORIZONTAL_ALIGNMENT_LEFT, int(NAME_W - 12.0), 11, Color(0.75, 0.82, 0.9))
 		var start := maxi(0, samples.size() - span)
 		var hi := y0 + 3.0
@@ -80,11 +80,3 @@ func _draw() -> void:
 			draw_line(Vector2(px, y), Vector2(px + step, y), col, 1.5)
 			px += step
 			py = y
-
-
-## 波形面板的期望高度：按观察数自适应
-func preferred_height() -> float:
-	var n := 0
-	if core != null:
-		n = core.wave_names().size()
-	return maxf(80.0, 24.0 + n * ROW_H)

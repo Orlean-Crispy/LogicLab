@@ -11,13 +11,17 @@ signal level_requested(depth: int)
 signal open_requested(idx: int)
 signal extract_requested(cname: String)
 signal wave_toggled(on: bool)
-signal language_toggled()
 
 const PANEL_BG := Color(0.10, 0.11, 0.14, 0.94)
 const HEAD := Color(0.58, 0.65, 0.75)
 
+## 与 ui_panel 保持一致：导航条必须避让左右侧栏，否则宽窗口下会撞上属性面板
+const LIB_W := 218.0
+const PROPS_W := 238.0
+
 var core = null
 
+var _bar: PanelContainer
 var _crumbs: HBoxContainer
 var _picker: OptionButton
 var _info: Label
@@ -43,7 +47,12 @@ func _ready() -> void:
 	sb.set_border_width_all(1)
 	bar.add_theme_stylebox_override("panel", sb)
 	layer.add_child(bar)
-	bar.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP, Control.PRESET_MODE_MINSIZE, 6)
+	# 位置由 _layout_bar 按窗口宽度算，不能用 CENTER_TOP：
+	# 水平居中在宽窗口下会一直延伸到右上角，和属性面板叠在一起。
+	bar.set_anchors_and_offsets_preset(Control.PRESET_TOP_LEFT, Control.PRESET_MODE_MINSIZE, 0)
+	_bar = bar
+	get_viewport().size_changed.connect(_layout_bar)
+	_layout_bar()
 
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 4)
@@ -73,18 +82,27 @@ func _ready() -> void:
 	_wave_btn.toggled.connect(func(on): wave_toggled.emit(on))
 	row.add_child(_wave_btn)
 
-	# 按钮上写的是「点了会切到哪种语言」，比写当前语言少一层理解成本
-	var lang_btn := Button.new()
-	lang_btn.text = "中文" if I18n.is_en() else "English"
-	lang_btn.tooltip_text = "切换界面语言 / Switch language"
-	lang_btn.add_theme_font_size_override("font_size", 12)
-	lang_btn.pressed.connect(func() -> void: language_toggled.emit())
-	row.add_child(lang_btn)
-
 	_info = Label.new()
 	_info.add_theme_font_size_override("font_size", 11)
 	_info.add_theme_color_override("font_color", HEAD)
+	# 它是运行时算出来的动态文本（含数字），由 refresh 自己翻译；
+	# 若让控件树遍历插手，meta 会缓存「格式化后的中文」，而表里的 key 是模板，永远对不上。
+	_info.set_meta("no_i18n", true)
 	row.add_child(_info)
+
+
+## 导航条在左右侧栏之间铺开，窗口变窄时跟着收窄
+func _layout_bar() -> void:
+	var vp := get_viewport().get_visible_rect().size
+	var x := LIB_W + 8.0
+	_bar.position = Vector2(x, 6.0)
+	_bar.size = Vector2(maxf(340.0, vp.x - x - PROPS_W - 8.0), _bar.get_combined_minimum_size().y)
+
+
+## 语言切换后重建导航条：面包屑与图纸下拉都是运行时才生成的文本
+func retranslate() -> void:
+	refresh()
+	I18n.apply(self)
 
 
 func _button(text: String, cb: Callable) -> Button:
@@ -99,7 +117,7 @@ func _button(text: String, cb: Callable) -> Button:
 func _process(_delta: float) -> void:
 	if core == null or _updating:
 		return
-	if _picker.item_count != core.board_names().size():
+	if _picker.item_count != core.board_names(I18n.lang).size():
 		refresh()
 		return
 	var cur: int = int(core.board_index())
@@ -111,9 +129,9 @@ func refresh() -> void:
 	if core == null or _updating:
 		return
 	_updating = true
-	var names: PackedStringArray = core.board_names()
+	var names: PackedStringArray = core.board_names(I18n.lang)
 	var cur: int = int(core.board_index())
-	var path: PackedStringArray = core.breadcrumb()
+	var path: PackedStringArray = core.breadcrumb(I18n.lang)
 
 	for c in _crumbs.get_children():
 		_crumbs.remove_child(c)
@@ -137,8 +155,13 @@ func refresh() -> void:
 	if cur >= 0 and cur < names.size():
 		_picker.select(cur)
 	var refs: int = int(core.board_refs(cur))
-	_info.text = "第 %d 层 · 共 %d 张图纸 · 本图纸被引用 %d 次" % [int(core.depth()), names.size(), refs]
+	_info.text = I18n.tf(
+		"第 %d 层 · 共 %d 张图纸 · 本图纸被引用 %d 次",
+		[int(core.depth()), names.size(), refs]
+	)
 	_updating = false
+	# _process 会按需重跑 refresh，若不在这里收尾，中文原文会把切好的英文覆盖回去
+	I18n.apply(self)
 
 
 func _on_crumb(depth: int) -> void:
@@ -158,7 +181,7 @@ func _on_new() -> void:
 
 func _on_rename() -> void:
 	var cur: int = int(core.board_index())
-	var names: PackedStringArray = core.board_names()
+	var names: PackedStringArray = core.board_names(I18n.lang)
 	if cur < 0 or cur >= names.size():
 		return
 	_prompt("重命名图纸", String(names[cur]), func(n: String) -> void:
@@ -168,7 +191,7 @@ func _on_rename() -> void:
 
 func _on_delete() -> void:
 	var cur: int = int(core.board_index())
-	if int(core.board_names().size()) <= 1:
+	if int(core.board_names(I18n.lang).size()) <= 1:
 		return
 	core.remove_board(cur)
 	refresh()

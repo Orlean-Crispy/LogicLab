@@ -93,7 +93,7 @@ func _initialize() -> void:
 	print("[8] 内置示例")
 	var ex_ids = core.example_ids()
 	_check(ex_ids.size() >= 4, "内置示例 >= 4 个（实际 %d）" % ex_ids.size())
-	_check(core.example_names().size() == ex_ids.size(), "示例名与 id 数量一致")
+	_check(core.example_names(0).size() == ex_ids.size(), "示例名与 id 数量一致")
 	for eid in ex_ids:
 		var ce = LogicLab.new()
 		if not ce.load_example(eid):
@@ -236,9 +236,9 @@ func _initialize() -> void:
 
 	print("[20] 层次：子电路展开（v4 ADR-28）")
 	var h1 = LogicLab.new()
-	_check(h1.board_names().size() == 1, "新工程只有一张图纸")
+	_check(h1.board_names(0).size() == 1, "新工程只有一张图纸")
 	var sub: int = int(h1.add_board("反相器"))
-	_check(sub == 1 and h1.board_names().size() == 2, "新建图纸")
+	_check(sub == 1 and h1.board_names(0).size() == 2, "新建图纸")
 	_check(h1.open_board(sub), "打开子图纸")
 	var ia: int = h1.add_component("input_pin", 0, 0)
 	var ino: int = h1.add_component("not", 6, 0)
@@ -265,9 +265,9 @@ func _initialize() -> void:
 	print("[21] 层次：导航与面包屑")
 	_check(h1.enter_sub(inst), "进入子电路")
 	_check(int(h1.depth()) == 1, "层数 = 1")
-	_check(h1.breadcrumb().size() == 2, "面包屑两级")
+	_check(h1.breadcrumb(0).size() == 2, "面包屑两级")
 	_check(h1.goto_depth(0), "退回根图纸")
-	_check(String(h1.board_names()[0]) != "", "图纸有名")
+	_check(String(h1.board_names(0)[0]) != "", "图纸有名")
 
 	print("[22] 层次：封装提取")
 	var e1 = LogicLab.new()
@@ -280,7 +280,7 @@ func _initialize() -> void:
 	e1.connect_pins(en2, 1, eled, 0)
 	var esub: int = int(e1.extract_to_sub(PackedInt32Array([en1, en2]), "双反相器"))
 	_check(esub == 1, "封装产生新图纸")
-	_check(e1.board_names().size() == 2, "图纸数 +1")
+	_check(e1.board_names(0).size() == 2, "图纸数 +1")
 	e1.toggle_input(esw)
 	e1.run_for(6)
 	var elnet := _pin_net(e1, eled, 0)
@@ -343,7 +343,7 @@ func _initialize() -> void:
 	print("[27] 层次示例全加器")
 	var f1 = LogicLab.new()
 	f1.load_example("full_adder")
-	_check(f1.board_names().size() == 2, "全加器含主图纸 + 半加器")
+	_check(f1.board_names(0).size() == 2, "全加器含主图纸 + 半加器")
 	var sum_ok := true
 	for row in [[0, 0, 0, 0, 0], [1, 1, 1, 1, 1], [1, 0, 1, 0, 1], [0, 1, 1, 0, 1]]:
 		f1.set_input(0, int(row[0]))

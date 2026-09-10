@@ -433,6 +433,10 @@ pub struct Board {
     /// 图纸名。作为子电路使用时它就是该自定义元件的类型名（ADR-28）
     #[serde(default)]
     pub name: String,
+    /// 可选的英文名。只有内置示例带它；用户自己起的名字留空，
+    /// 于是切界面语言不会去动用户的数据（ADR-25 的 display_name 同理）。
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub name_en: String,
     pub instances: Vec<Instance>,
     pub wires: Vec<Wire>,
     #[serde(default)]
