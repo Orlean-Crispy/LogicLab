@@ -747,6 +747,10 @@ impl Session {
 
     fn after_edit(&mut self) {
         self.fix_path();
+        // 编辑即重置会把仿真退回上电态，波形也必须跟着从头开始：
+        // 否则缓冲里留着上一次仿真的样本，而 tick 已经归零，时间轴对不上。
+        // 顺带清掉观察列表——网表重建后旧的网络编号已经失效。
+        self.wave.clear();
         self.rebuild();
         self.revision += 1;
     }
@@ -1386,6 +1390,79 @@ mod tests {
         });
         assert_eq!(s.board().instances.len(), 1);
         assert_eq!(s.board().wires.len(), 0, "批量删除同样不留孤儿导线");
+    }
+
+    /// 编辑即重置必须把波形也一起重置，否则时间轴会错位（对抗性用例发现的）
+    #[test]
+    fn edit_clears_waveform_buffer() {
+        let mut s = two_pin_circuit();
+        let net = s.view().wires[0].net;
+        assert!(s.wave_watch(net, "sig"));
+        s.sim_run_for(4);
+        assert_eq!(s.wave_trace(0).unwrap().samples.len(), 4);
+
+        s.add_component(DefId::Not, 20, 0);
+        assert_eq!(s.tick(), 0, "编辑把 tick 归零");
+        assert_eq!(s.wave_len(), 0, "波形缓冲也必须一起清空");
+    }
+
+    /// 子电路实例被删后，指向它的编辑路径要自动失效，不能停在悬空图纸上
+    #[test]
+    fn deleting_the_instance_invalidates_the_path() {
+        let mut s = Session::new();
+        let sub = s.add_board("子");
+        assert!(s.open_board(sub));
+        s.add_component(DefId::Not, 0, 0);
+        assert!(s.open_board(0));
+        let inst = s.add_sub_instance(sub, 10, 0).unwrap();
+        assert!(s.enter_sub(inst));
+        assert_eq!(s.depth(), 1);
+
+        assert!(s.goto_depth(0));
+        s.remove_component(inst);
+        assert_eq!(s.depth(), 0, "实例没了，路径必须被截断");
+        assert_eq!(s.board_index(), 0);
+        assert!(s.undo());
+        assert_eq!(s.depth(), 0, "撤销后同样不能停在失效路径上");
+    }
+
+    /// 封装之后撤销：图纸、元件、导线都要原样回来
+    #[test]
+    fn undoing_encapsulation_restores_everything() {
+        let mut s = Session::new();
+        let a = s.add_component(DefId::Not, 0, 0);
+        let b = s.add_component(DefId::Not, 8, 0);
+        assert!(s.connect_pins((a, 1), (b, 0)));
+        let before = s.to_json().unwrap();
+
+        assert!(s.extract_to_sub(&[a, b], "双反相器").is_some());
+        assert_eq!(s.project().boards.len(), 2);
+        assert!(s.undo());
+        assert_eq!(s.project().boards.len(), 1, "撤销后不该残留新建的图纸");
+        assert_eq!(s.to_json().unwrap(), before, "序列化必须完全回到封装之前");
+    }
+
+    /// 删图纸之后撤销：实例与接线一并回来
+    #[test]
+    fn undoing_board_removal_restores_wires() {
+        let mut s = Session::new();
+        let sub = s.add_board("子");
+        assert!(s.open_board(sub));
+        let ia = s.add_component(DefId::InputPin, 0, 0);
+        let iy = s.add_component(DefId::OutputPin, 8, 0);
+        assert!(s.connect_pins((ia, 0), (iy, 0)));
+        assert!(s.open_board(0));
+        let sw = s.add_component(DefId::Switch, 0, 0);
+        let inst = s.add_sub_instance(sub, 10, 0).unwrap();
+        assert!(s.connect_pins((sw, 0), (inst, 0)));
+        let before = s.to_json().unwrap();
+
+        assert!(s.remove_board(sub));
+        assert_eq!(s.project().boards.len(), 1);
+        assert_eq!(s.board().wires.len(), 0);
+        assert!(s.undo());
+        assert_eq!(s.project().boards.len(), 2);
+        assert_eq!(s.to_json().unwrap(), before, "撤销要连图纸一起还原");
     }
 }
 
